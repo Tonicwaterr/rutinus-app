@@ -478,6 +478,31 @@ function arAktiv(datum: string) {
   return skillnadDagar <= 3;
 }
 
+function hamtaTaskCardStyle(uppgift: Uppgift) {
+  if (uppgift.status === 'avslutad') {
+    return styles.taskCard;
+  }
+
+  const idag = new Date();
+  idag.setHours(0, 0, 0, 0);
+
+  const uppgiftsDatum = strangTillDatum(uppgift.datum);
+  uppgiftsDatum.setHours(0, 0, 0, 0);
+
+  const skillnadMs = uppgiftsDatum.getTime() - idag.getTime();
+  const skillnadDagar = Math.round(skillnadMs / (1000 * 60 * 60 * 24));
+
+  if (skillnadDagar < 0) {
+    return [styles.taskCard, styles.taskCardLate];
+  }
+
+  if (skillnadDagar === 0) {
+    return [styles.taskCard, styles.taskCardToday];
+  }
+
+  return styles.taskCard;
+}
+
 function skapaStartUppgifter(): Uppgift[] {
   const idag = new Date();
 
@@ -535,7 +560,7 @@ function UppgiftsSektion({
             <Pressable
               key={uppgift.id}
               onPress={() => onTryckUppgift?.(uppgift.id)}
-              style={styles.taskCard}
+              style={hamtaTaskCardStyle(uppgift)}
             >
              <Text style={styles.taskTitle}>
               {uppgift.status === 'avslutad' ? '✔ ' : ''}
@@ -1021,14 +1046,16 @@ export default function HomeScreen() {
               </Pressable>
 
             {visaDatumValkare && (
-              <DateTimePicker
-                value={valtDatum}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                themeVariant="light"
-                accentColor="#1f6feb"
-                onChange={hanteraDatumAndring}
-              />
+              <View style={styles.datePickerWrapper}>
+                <DateTimePicker
+                  value={valtDatum}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  themeVariant="light"
+                  accentColor="#1f6feb"
+                  onChange={hanteraDatumAndring}
+                />
+              </View>
             )}
 
             <View style={styles.modalButtonRow}>
@@ -1057,7 +1084,7 @@ export default function HomeScreen() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <View style={styles.modalHeaderRow}>
+              <View style={[styles.modalHeaderRow, styles.recurrenceHeaderSpacing]}>
                 <Text style={styles.modalTitle}>Upprepning</Text>
 
                 <Pressable
@@ -1068,7 +1095,7 @@ export default function HomeScreen() {
                 </Pressable>
               </View>
 
-              <View style={styles.recurrenceTypeRow}>
+              <View style={[styles.recurrenceTypeRow, styles.recurrenceTypeRowSpacing]}>
                 <Pressable
                   style={[
                     styles.recurrenceTypeButton,
@@ -1368,12 +1395,14 @@ export default function HomeScreen() {
                 </View>
               )}
 
-              <Pressable
-                style={styles.fullWidthConfirmButton}
-                onPress={stangUpprepningModal}
-              >
-                <Text style={styles.fullWidthConfirmButtonText}>Klar</Text>
-              </Pressable>
+              {upprepningTyp !== 'ingen' && (
+                <Pressable
+                  style={[styles.fullWidthConfirmButton, styles.recurrenceConfirmSpacing]}
+                  onPress={stangUpprepningModal}
+                >
+                  <Text style={styles.fullWidthConfirmButtonText}>Klar</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -1403,7 +1432,7 @@ export default function HomeScreen() {
                   <Text style={styles.modalTitle}>{valdUppgift.titel}</Text>
                  
                   <View style={[styles.detailInfoBox, styles.commentSectionSpacing]}>
-                    <Text style={styles.detailInfoLabel}>Kommentar</Text>
+                    
 
                     {redigerarKommentar ? (
                       <>
@@ -1446,14 +1475,14 @@ export default function HomeScreen() {
                           style={styles.secondaryButton}
                           onPress={() => setRedigerarKommentar(true)}
                         >
-                          <Text style={styles.secondaryButtonText}>Ändra kommentar</Text>
+                          <Text style={styles.secondaryButtonText}>Redigera</Text>
                         </Pressable>
                       </>
                     )}
                   </View>
 
                   <View style={[styles.detailInfoBox, styles.recurrenceSectionSpacing]}>
-                    <Text style={styles.detailInfoLabel}>Upprepning</Text>
+                    
                     <Text style={styles.detailInfoValue}>
                       {formatUpprepningText(valdUppgift)}
                     </Text>
@@ -1473,7 +1502,7 @@ export default function HomeScreen() {
                       style={styles.deleteButton}
                       onPress={hanteraTaBortFranDetalj}
                     >
-                      <Text style={styles.deleteButtonText}>Ta bort</Text>
+                      <Text style={styles.deleteButtonText}>Radera</Text>
                     </Pressable>
                   </View>
                 </>
@@ -1494,6 +1523,7 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#fff',
     gap: 20,
+    marginTop: 30,
   },
   contentScroll: {
     flex: 1,
@@ -1543,6 +1573,12 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
   },
+  taskCardToday: {
+    backgroundColor: '#fff4cc',
+  },
+  taskCardLate: {
+    backgroundColor: '#f8d7da',
+  },
   taskTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -1564,7 +1600,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
-    modalCard: {
+  modalCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
@@ -1875,13 +1911,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#333',
   },
+  datePickerWrapper: {
+    alignItems: 'center',
+  },
+
+  /* Space between details */
   commentSectionSpacing: {
-    marginTop: 8,
+    marginTop: 20,
   },
   recurrenceSectionSpacing: {
-    marginTop: 8,
+    marginTop: 12,
   },
   detailButtonSpacing: {
-    marginTop: 10,
+    marginTop: 14,
+  },
+  recurrenceHeaderSpacing: {
+    marginBottom: 20,
+  },
+  recurrenceTypeRowSpacing: {
+    marginBottom: 12,
+  },
+  recurrenceConfirmSpacing: {
+    marginTop: 14,
   },
 });

@@ -8,7 +8,11 @@
     "scheme": "rutinusapp",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/images/icon.png"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.tonidakovic.rutinus",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -41,6 +45,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "10965018-3f55-48a8-981b-8dd305fad0bb"
+      }
     }
   }
 }
