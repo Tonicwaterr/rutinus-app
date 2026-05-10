@@ -323,6 +323,14 @@ function formatUpprepningText(uppgift: Uppgift) {
   return 'Ingen upprepning';
 }
 
+function formatUpprepningKortText(uppgift: Uppgift) {
+  if (!uppgift.upprepningTyp || uppgift.upprepningTyp === 'ingen') {
+    return '';
+  }
+
+  return formatUpprepningText(uppgift).replace('Upprepas ', '');
+}
+
 function hamtaFrekvensNummer(frekvens?: string) {
   switch (frekvens) {
     case 'Varje':
@@ -562,13 +570,21 @@ function UppgiftsSektion({
               onPress={() => onTryckUppgift?.(uppgift.id)}
               style={hamtaTaskCardStyle(uppgift)}
             >
-             <Text style={styles.taskTitle}>
-              {uppgift.status === 'avslutad' ? '✔ ' : ''}
-              {uppgift.titel}
-              {uppgift.kommentar ? ' [K]' : ''}
-             </Text>
+              <View style={styles.taskHeaderRow}>
+                <Text style={styles.taskTitle}>
+                  {uppgift.status === 'avslutad' ? '✔ ' : ''}
+                  {uppgift.titel}
+                  {uppgift.kommentar ? ' [K]' : ''}
+                </Text>
 
-             <Text style={styles.taskMeta}>{visningstext}</Text>
+                <Text style={styles.taskDueText}>{visningstext.replace(/[()]/g, '')}</Text>
+              </View>
+
+              {uppgift.upprepningTyp && uppgift.upprepningTyp !== 'ingen' && (
+                <Text style={styles.taskRecurrenceText}>
+                  {formatUpprepningKortText(uppgift)}
+                </Text>
+              )}
             </Pressable>
           );
         })
@@ -603,12 +619,11 @@ export default function HomeScreen() {
   const [visaLaggTillModal, setVisaLaggTillModal] = useState(false);
   const [visaDatumValkare, setVisaDatumValkare] = useState(false);
   const [valdUppgift, setValdUppgift] = useState<Uppgift | null>(null);
-  const [redigerarKommentar, setRedigerarKommentar] = useState(false);
-  const [redigeradKommentar, setRedigeradKommentar] = useState('');
   const [nyTitel, setNyTitel] = useState('');
   const [nyKommentar, setNyKommentar] = useState('');
   const [valtDatum, setValtDatum] = useState<Date>(new Date());
-  
+  const [uppgiftSomRedigeras, setUppgiftSomRedigeras] = useState<Uppgift | null>(null);
+
   const [visaUpprepningModal, setVisaUpprepningModal] = useState(false);
   const [upprepningTyp, setUpprepningTyp] = useState<'ingen' | 'daglig' | 'veckovis' | 'manadsvis'>('ingen');
   const [upprepningDagar, setUpprepningDagar] = useState('1');
@@ -674,6 +689,7 @@ export default function HomeScreen() {
   }, [uppgifter, harLaddat]);
 
   function oppnaLaggTillModal() {
+    setUppgiftSomRedigeras(null);
     setNyTitel('');
     setNyKommentar('');
     setValtDatum(new Date());
@@ -700,6 +716,42 @@ export default function HomeScreen() {
     setNyKommentar('');
     setValtDatum(new Date());
     setVisaDatumValkare(false);
+    setUppgiftSomRedigeras(null);
+  }
+
+  function oppnaRedigeraModal() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    setUppgiftSomRedigeras(valdUppgift);
+
+    setNyTitel(valdUppgift.titel);
+    setNyKommentar(valdUppgift.kommentar ?? '');
+    setValtDatum(strangTillDatum(valdUppgift.datum));
+
+    setUpprepningTyp(valdUppgift.upprepningTyp ?? 'ingen');
+    setUpprepningDagar(String(valdUppgift.upprepningDagar ?? 1));
+
+    setUpprepningVeckoFrekvens(valdUppgift.upprepningVeckoFrekvens ?? 'Varje');
+    setUpprepningVeckodag(valdUppgift.upprepningVeckodag ?? 'Måndag');
+
+    setUpprepningManadsFrekvens(valdUppgift.upprepningManadsFrekvens ?? 'Varje');
+    setUpprepningManadsDag(String(valdUppgift.upprepningManadsDag ?? 1));
+
+    setUpprepningManadsDynamisk(valdUppgift.upprepningManadsDynamisk ?? false);
+    setUpprepningManadsPosition(valdUppgift.upprepningManadsPosition ?? 'Första');
+    setUpprepningManadsDynamiskVeckodag(
+      valdUppgift.upprepningManadsDynamiskVeckodag ?? 'Måndag'
+    );
+    setUpprepningManadsDynamiskFrekvens(
+      valdUppgift.upprepningManadsDynamiskFrekvens ?? 'Varje'
+    );
+
+    setValdUppgift(null);
+    setVisaDatumValkare(false);
+    setVisaUpprepningModal(false);
+    setVisaLaggTillModal(true);
   }
 
   function oppnaUpprepningModal() {
@@ -734,15 +786,16 @@ export default function HomeScreen() {
 
     const datumStrang = datumTillStrang(valtDatum);
 
-    const nyUppgift: Uppgift = {
-      id: Date.now().toString(),
+    const sparadUppgift: Uppgift = {
+      id: uppgiftSomRedigeras ? uppgiftSomRedigeras.id : Date.now().toString(),
       titel: renTitel,
-      status: 'aktiv',
+      status: uppgiftSomRedigeras ? uppgiftSomRedigeras.status : 'aktiv',
       datum: datumStrang,
       kommentar: nyKommentar.trim() || undefined,
 
       upprepningTyp,
-      upprepningDagar: upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
+      upprepningDagar:
+        upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
 
       upprepningVeckoFrekvens:
         upprepningTyp === 'veckovis' ? upprepningVeckoFrekvens : undefined,
@@ -772,9 +825,21 @@ export default function HomeScreen() {
         upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
           ? upprepningManadsDynamiskFrekvens
           : undefined,
+
+      klartDatum: uppgiftSomRedigeras?.klartDatum,
     };
 
-    setUppgifter((nuvarandeUppgifter) => [nyUppgift, ...nuvarandeUppgifter]);
+    if (uppgiftSomRedigeras) {
+      setUppgifter((nuvarandeUppgifter) =>
+        nuvarandeUppgifter.map((uppgift) =>
+          uppgift.id === uppgiftSomRedigeras.id ? sparadUppgift : uppgift
+        )
+      );
+    } else {
+      setUppgifter((nuvarandeUppgifter) => [sparadUppgift, ...nuvarandeUppgifter]);
+    }
+
+    setUppgiftSomRedigeras(null);
     setAktivFlik(arAktiv(datumStrang) ? 'Aktiva' : 'Kommande');
     stangLaggTillModal();
   }
@@ -796,14 +861,10 @@ export default function HomeScreen() {
   function oppnaUppgift(id: string) {
     const hittadUppgift = uppgifter.find((uppgift) => uppgift.id === id) ?? null;
     setValdUppgift(hittadUppgift);
-    setRedigerarKommentar(false);
-    setRedigeradKommentar(hittadUppgift?.kommentar ?? '');
   }
   
   function stangUppgift() {
     setValdUppgift(null);
-    setRedigerarKommentar(false);
-    setRedigeradKommentar('');
   }
 
   function hanteraKlarFranDetalj() {
@@ -859,35 +920,6 @@ export default function HomeScreen() {
     stangUppgift();
   }
 
-  function hanteraSparaKommentar() {
-    if (!valdUppgift) {
-      return;
-    }
-
-    const nyKommentar = redigeradKommentar.trim();
-
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === valdUppgift.id
-          ? {
-              ...uppgift,
-              kommentar: nyKommentar || undefined,
-            }
-          : uppgift
-      )
-    );
-
-    setValdUppgift((nuvarandeValdUppgift) =>
-      nuvarandeValdUppgift
-        ? {
-            ...nuvarandeValdUppgift,
-            kommentar: nyKommentar || undefined,
-          }
-        : null
-    );
-
-    setRedigerarKommentar(false);
-  }
 
   const aktivaUppgifter = uppgifter
     .filter((uppgift) => uppgift.status === 'aktiv' && arAktiv(uppgift.datum))
@@ -963,7 +995,9 @@ export default function HomeScreen() {
              contentContainerStyle={styles.modalScrollContent}
              keyboardShouldPersistTaps="handled"
              >
-            <Text style={styles.modalTitle}>Lägg till ny</Text>
+            <Text style={styles.modalTitle}>
+              {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
+            </Text>
 
             <TextInput
               style={styles.input}
@@ -986,53 +1020,74 @@ export default function HomeScreen() {
 
             <Text style={styles.fieldLabel}>Upprepning</Text>
 
+              {upprepningTyp !== 'ingen' && (
+                <View style={styles.recurrenceSummaryRow}>
+                  <Text style={styles.recurrenceSummaryText}>
+                    {formatUpprepningText({
+                      id: '',
+                      titel: '',
+                      status: 'aktiv',
+                      datum: datumTillStrang(valtDatum),
+                      upprepningTyp,
+                      upprepningDagar: upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
+                      upprepningVeckoFrekvens:
+                        upprepningTyp === 'veckovis' ? upprepningVeckoFrekvens : undefined,
+                      upprepningVeckodag:
+                        upprepningTyp === 'veckovis' ? upprepningVeckodag : undefined,
+                      upprepningManadsFrekvens:
+                        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
+                          ? upprepningManadsFrekvens
+                          : undefined,
+                      upprepningManadsDag:
+                        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
+                          ? Number(upprepningManadsDag) || 1
+                          : undefined,
+                      upprepningManadsDynamisk:
+                        upprepningTyp === 'manadsvis' ? upprepningManadsDynamisk : undefined,
+                      upprepningManadsPosition:
+                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
+                          ? upprepningManadsPosition
+                          : undefined,
+                      upprepningManadsDynamiskVeckodag:
+                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
+                          ? upprepningManadsDynamiskVeckodag
+                          : undefined,
+                      upprepningManadsDynamiskFrekvens:
+                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
+                          ? upprepningManadsDynamiskFrekvens
+                          : undefined,
+                    })}
+                  </Text>
+
+                  <Pressable
+                    style={styles.smallCloseButton}
+                    onPress={() => {
+                      setUpprepningTyp('ingen');
+                      setUpprepningDagar('1');
+
+                      setUpprepningVeckoFrekvens('Varje');
+                      setUpprepningVeckodag('Måndag');
+
+                      setUpprepningManadsFrekvens('Varje');
+                      setUpprepningManadsDag('1');
+
+                      setUpprepningManadsDynamisk(false);
+                      setUpprepningManadsPosition('Första');
+                      setUpprepningManadsDynamiskVeckodag('Måndag');
+                      setUpprepningManadsDynamiskFrekvens('Varje');
+                    }}
+                  >
+                    <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
+                  </Pressable>
+                </View>
+              )}
+
               <Pressable
                 style={styles.secondaryButton}
                 onPress={oppnaUpprepningModal}
               >
-                <Text style={styles.secondaryButtonText}>
-                  {upprepningTyp === 'ingen' ? 'Lägg till upprepning' : 'Ändra upprepning'}
-                </Text>
-              </Pressable>
-
-            {upprepningTyp !== 'ingen' && (
-              <Text style={styles.recurrenceSummaryText}>
-                {formatUpprepningText({
-                  id: '',
-                  titel: '',
-                  status: 'aktiv',
-                  datum: datumTillStrang(valtDatum),
-                  upprepningTyp,
-                  upprepningDagar: upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
-                  upprepningVeckoFrekvens:
-                    upprepningTyp === 'veckovis' ? upprepningVeckoFrekvens : undefined,
-                  upprepningVeckodag:
-                    upprepningTyp === 'veckovis' ? upprepningVeckodag : undefined,
-                  upprepningManadsFrekvens:
-                    upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-                      ? upprepningManadsFrekvens
-                      : undefined,
-                  upprepningManadsDag:
-                    upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-                      ? Number(upprepningManadsDag) || 1
-                      : undefined,
-                  upprepningManadsDynamisk:
-                    upprepningTyp === 'manadsvis' ? upprepningManadsDynamisk : undefined,
-                  upprepningManadsPosition:
-                    upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                      ? upprepningManadsPosition
-                      : undefined,
-                  upprepningManadsDynamiskVeckodag:
-                    upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                      ? upprepningManadsDynamiskVeckodag
-                      : undefined,
-                  upprepningManadsDynamiskFrekvens:
-                    upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                      ? upprepningManadsDynamiskFrekvens
-                      : undefined,
-                })}
-              </Text>
-            )} 
+                <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
+              </Pressable> 
 
             <Text style={styles.fieldLabel}>Datum</Text>
 
@@ -1434,51 +1489,10 @@ export default function HomeScreen() {
                   <View style={[styles.detailInfoBox, styles.commentSectionSpacing]}>
                     
 
-                    {redigerarKommentar ? (
-                      <>
-                        <TextInput
-                          style={[styles.input, styles.textArea]}
-                          value={redigeradKommentar}
-                          onChangeText={setRedigeradKommentar}
-                          multiline
-                          textAlignVertical="top"
-                          placeholder="Kommentar..."
-                          placeholderTextColor="#666"
-                        />
+                    <Text style={styles.detailInfoValue}>
+                      {valdUppgift.kommentar ? valdUppgift.kommentar : 'Ingen kommentar'}
+                    </Text>
 
-                        <View style={styles.commentButtonRow}>
-                          <Pressable
-                            style={styles.cancelButton}
-                            onPress={() => {
-                              setRedigerarKommentar(false);
-                              setRedigeradKommentar(valdUppgift.kommentar ?? '');
-                            }}
-                          >
-                            <Text style={styles.cancelButtonText}>Avbryt</Text>
-                          </Pressable>
-
-                          <Pressable
-                            style={styles.confirmButton}
-                            onPress={hanteraSparaKommentar}
-                          >
-                            <Text style={styles.confirmButtonText}>Spara</Text>
-                          </Pressable>
-                        </View>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.detailInfoValue}>
-                          {valdUppgift.kommentar ? valdUppgift.kommentar : 'Ingen kommentar'}
-                        </Text>
-
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={() => setRedigerarKommentar(true)}
-                        >
-                          <Text style={styles.secondaryButtonText}>Redigera</Text>
-                        </Pressable>
-                      </>
-                    )}
                   </View>
 
                   <View style={[styles.detailInfoBox, styles.recurrenceSectionSpacing]}>
@@ -1498,12 +1512,21 @@ export default function HomeScreen() {
                       </Pressable>
                     )}
 
-                    <Pressable
-                      style={styles.deleteButton}
-                      onPress={hanteraTaBortFranDetalj}
-                    >
-                      <Text style={styles.deleteButtonText}>Radera</Text>
-                    </Pressable>
+                    <View style={styles.detailActionRow}>
+                      <Pressable
+                        style={styles.editButton}
+                        onPress={oppnaRedigeraModal}
+                      >
+                        <Text style={styles.editButtonText}>Redigera</Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.deleteButton}
+                        onPress={hanteraTaBortFranDetalj}
+                      >
+                        <Text style={styles.deleteButtonText}>Ta bort</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </>
               )}
@@ -1580,11 +1603,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8d7da',
   },
   taskTitle: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '600',
     color: '#111',
+    marginRight: 12,
   },
-  taskMeta: {
+  taskHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  taskDueText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#444',
+    textAlign: 'right',
+  },
+  taskRecurrenceText: {
+    marginTop: 6,
     fontSize: 14,
     color: '#666',
   },
@@ -1703,6 +1740,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   deleteButton: {
+    flex: 1,
     backgroundColor: '#dc3545',
     paddingVertical: 12,
     borderRadius: 12,
@@ -1717,6 +1755,21 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
   },
+  detailActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editButton: {
+    flex: 1,
+    backgroundColor: '#e9ecef',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  editButtonText: {
+    color: '#222',
+    fontWeight: '600',
+  },
   secondaryButton: {
     marginTop: 10,
     backgroundColor: '#e9ecef',
@@ -1729,9 +1782,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   recurrenceSummaryText: {
+    flex: 1,
     fontSize: 14,
     color: '#555',
-    marginTop: -8,
+  },
+  recurrenceSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: -6,
+    marginBottom: 8,
+  },
+  smallCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e9ecef',
+    marginLeft: 12,
+  },
+  smallCloseButtonText: {
+    fontSize: 18,
+    lineHeight: 18,
+    color: '#222',
+    fontWeight: '600',
   },
   fullWidthConfirmButton: {
     backgroundColor: '#1f6feb',
