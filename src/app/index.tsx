@@ -15,6 +15,23 @@ import {
   View,
 } from 'react-native';
 
+type UpprepningsRegel = {
+  typ: 'daglig' | 'veckovis' | 'manadsvis';
+
+  dagar?: number;
+
+  veckoFrekvens?: string;
+  veckodag?: string;
+
+  manadsFrekvens?: string;
+  manadsDag?: number;
+
+  manadsDynamisk?: boolean;
+  manadsPosition?: string;
+  manadsDynamiskVeckodag?: string;
+  manadsDynamiskFrekvens?: string;
+};
+
 type Uppgift = {
   id: string;
   titel: string;
@@ -23,16 +40,11 @@ type Uppgift = {
   klartDatum?: string;
   kommentar?: string;
 
-  upprepningTyp?: 'ingen' | 'daglig' | 'veckovis' | 'manadsvis';
-  upprepningDagar?: number;
-  upprepningVeckoFrekvens?: string;
-  upprepningVeckodag?: string;
-  upprepningManadsFrekvens?: string;
-  upprepningManadsDag?: number;
-  upprepningManadsDynamisk?: boolean;
-  upprepningManadsPosition?: string;
-  upprepningManadsDynamiskVeckodag?: string;
-  upprepningManadsDynamiskFrekvens?: string;
+  startTid?: string;
+  harStartTid?: boolean;
+
+  upprepningar?: UpprepningsRegel[];
+  
 };
 
 type Flik = 'Aktiva' | 'Kommande' | 'Avslutade';
@@ -275,13 +287,10 @@ function formatManadsDagText(dag?: number) {
   return `${dag}e`;
 }
 
-function formatUpprepningText(uppgift: Uppgift) {
-  if (!uppgift.upprepningTyp || uppgift.upprepningTyp === 'ingen') {
-    return 'Ingen upprepning';
-  }
 
-  if (uppgift.upprepningTyp === 'daglig') {
-    const dagar = uppgift.upprepningDagar ?? 1;
+function formatUpprepningTextFranRegel(regel: UpprepningsRegel) {
+  if (regel.typ === 'daglig') {
+    const dagar = regel.dagar ?? 1;
 
     if (dagar === 1) {
       return 'Upprepas varje dag';
@@ -294,28 +303,23 @@ function formatUpprepningText(uppgift: Uppgift) {
     return `Upprepas var ${dagar} dagar`;
   }
 
-  if (uppgift.upprepningTyp === 'veckovis') {
-    const frekvensText = formatVeckoFrekvensText(uppgift.upprepningVeckoFrekvens);
-    const veckodag = uppgift.upprepningVeckodag?.toLowerCase() ?? '';
-
+  if (regel.typ === 'veckovis') {
+    const frekvensText = formatVeckoFrekvensText(regel.veckoFrekvens);
+    const veckodag = regel.veckodag?.toLowerCase() ?? '';
     return `Upprepas ${frekvensText} ${veckodag}`.trim();
   }
 
-  if (uppgift.upprepningTyp === 'manadsvis') {
-    if (uppgift.upprepningManadsDynamisk) {
-      const position = uppgift.upprepningManadsPosition?.toLowerCase() ?? '';
-      const veckodag = formatVeckodagBestamdForm(
-        uppgift.upprepningManadsDynamiskVeckodag
-      );
-      const frekvensText = formatManadsFrekvensText(
-        uppgift.upprepningManadsDynamiskFrekvens
-      );
+  if (regel.typ === 'manadsvis') {
+    if (regel.manadsDynamisk) {
+      const position = regel.manadsPosition?.toLowerCase() ?? '';
+      const veckodag = formatVeckodagBestamdForm(regel.manadsDynamiskVeckodag);
+      const frekvensText = formatManadsFrekvensText(regel.manadsDynamiskFrekvens);
 
       return `Upprepas den ${position} ${veckodag} ${frekvensText}`.trim();
     }
 
-    const dagText = formatManadsDagText(uppgift.upprepningManadsDag);
-    const frekvensText = formatManadsFrekvensText(uppgift.upprepningManadsFrekvens);
+    const dagText = formatManadsDagText(regel.manadsDag);
+    const frekvensText = formatManadsFrekvensText(regel.manadsFrekvens);
 
     return `Upprepas den ${dagText} ${frekvensText}`.trim();
   }
@@ -323,12 +327,16 @@ function formatUpprepningText(uppgift: Uppgift) {
   return 'Ingen upprepning';
 }
 
-function formatUpprepningKortText(uppgift: Uppgift) {
-  if (!uppgift.upprepningTyp || uppgift.upprepningTyp === 'ingen') {
-    return '';
+function formatUpprepningKortTextFranRegel(regel: UpprepningsRegel) {
+  return formatUpprepningTextFranRegel(regel).replace('Upprepas ', '');
+}
+
+function formatStartTid(uppgift: Uppgift) {
+  if (!uppgift.harStartTid || !uppgift.startTid) {
+    return 'Ingen starttid';
   }
 
-  return formatUpprepningText(uppgift).replace('Upprepas ', '');
+  return uppgift.startTid;
 }
 
 function hamtaFrekvensNummer(frekvens?: string) {
@@ -391,19 +399,20 @@ function hamtaSistaVeckodagIManad(ar: number, manad: number, veckodag: number) {
   return sistaDatum;
 }
 
-function beraknaNastaDatum(uppgift: Uppgift) {
-  const aktuelltDatum = strangTillDatum(uppgift.datum);
 
-  if (uppgift.upprepningTyp === 'daglig') {
-    const dagar = uppgift.upprepningDagar ?? 1;
+function beraknaNastaDatumFranRegel(utgangsDatum: string, regel: UpprepningsRegel) {
+  const aktuelltDatum = strangTillDatum(utgangsDatum);
+
+  if (regel.typ === 'daglig') {
+    const dagar = regel.dagar ?? 1;
     const nyttDatum = new Date(aktuelltDatum);
     nyttDatum.setDate(nyttDatum.getDate() + dagar);
     return datumTillStrang(nyttDatum);
   }
 
-  if (uppgift.upprepningTyp === 'veckovis') {
-    const stegVeckor = hamtaFrekvensNummer(uppgift.upprepningVeckoFrekvens);
-    const malVeckodag = hamtaVeckodagNummer(uppgift.upprepningVeckodag);
+  if (regel.typ === 'veckovis') {
+    const stegVeckor = hamtaFrekvensNummer(regel.veckoFrekvens);
+    const malVeckodag = hamtaVeckodagNummer(regel.veckodag);
 
     const nyttDatum = new Date(aktuelltDatum);
     nyttDatum.setDate(nyttDatum.getDate() + stegVeckor * 7);
@@ -415,21 +424,17 @@ function beraknaNastaDatum(uppgift: Uppgift) {
     return datumTillStrang(nyttDatum);
   }
 
-  if (uppgift.upprepningTyp === 'manadsvis') {
-    if (uppgift.upprepningManadsDynamisk) {
-      const stegManader = hamtaFrekvensNummer(
-        uppgift.upprepningManadsDynamiskFrekvens
-      );
-      const malVeckodag = hamtaVeckodagNummer(
-        uppgift.upprepningManadsDynamiskVeckodag
-      );
+  if (regel.typ === 'manadsvis') {
+    if (regel.manadsDynamisk) {
+      const stegManader = hamtaFrekvensNummer(regel.manadsDynamiskFrekvens);
+      const malVeckodag = hamtaVeckodagNummer(regel.manadsDynamiskVeckodag);
 
       const nyttAr = aktuelltDatum.getFullYear();
       const nyManad = aktuelltDatum.getMonth() + stegManader;
 
       let nyttDatum: Date;
 
-      if (uppgift.upprepningManadsPosition === 'Sista') {
+      if (regel.manadsPosition === 'Sista') {
         nyttDatum = hamtaSistaVeckodagIManad(nyttAr, nyManad, malVeckodag);
       } else {
         nyttDatum = hamtaForstaVeckodagIManad(nyttAr, nyManad, malVeckodag);
@@ -438,8 +443,8 @@ function beraknaNastaDatum(uppgift: Uppgift) {
       return datumTillStrang(nyttDatum);
     }
 
-    const stegManader = hamtaFrekvensNummer(uppgift.upprepningManadsFrekvens);
-    const manadsDag = uppgift.upprepningManadsDag ?? 1;
+    const stegManader = hamtaFrekvensNummer(regel.manadsFrekvens);
+    const manadsDag = regel.manadsDag ?? 1;
 
     const nyttAr = aktuelltDatum.getFullYear();
     const nyManad = aktuelltDatum.getMonth() + stegManader;
@@ -451,7 +456,7 @@ function beraknaNastaDatum(uppgift: Uppgift) {
     return datumTillStrang(nyttDatum);
   }
 
-  return uppgift.datum;
+  return utgangsDatum;
 }
 
 function taBortGamlaAvslutadeUppgifter(uppgifter: Uppgift[]) {
@@ -577,12 +582,20 @@ function UppgiftsSektion({
                   {uppgift.kommentar ? ' [K]' : ''}
                 </Text>
 
-                <Text style={styles.taskDueText}>{visningstext.replace(/[()]/g, '')}</Text>
+                <View style={styles.taskRightColumn}>
+                  <Text style={styles.taskDueText}>{visningstext.replace(/[()]/g, '')}</Text>
+
+                  {uppgift.harStartTid && uppgift.startTid && (
+                    <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
+                  )}
+                </View>
               </View>
 
-              {uppgift.upprepningTyp && uppgift.upprepningTyp !== 'ingen' && (
+              {uppgift.upprepningar && uppgift.upprepningar.length > 0 && (
                 <Text style={styles.taskRecurrenceText}>
-                  {formatUpprepningKortText(uppgift)}
+                  {uppgift.upprepningar
+                    .map((regel) => formatUpprepningKortTextFranRegel(regel))
+                    .join(' • ')}
                 </Text>
               )}
             </Pressable>
@@ -624,8 +637,14 @@ export default function HomeScreen() {
   const [valtDatum, setValtDatum] = useState<Date>(new Date());
   const [uppgiftSomRedigeras, setUppgiftSomRedigeras] = useState<Uppgift | null>(null);
 
+  const [harStartTid, setHarStartTid] = useState(false);
+  const [startTimme, setStartTimme] = useState('08');
+  const [startMinut, setStartMinut] = useState('00');
+  const [visaStartTidValkare, setVisaStartTidValkare] = useState(false);
+
   const [visaUpprepningModal, setVisaUpprepningModal] = useState(false);
   const [upprepningTyp, setUpprepningTyp] = useState<'ingen' | 'daglig' | 'veckovis' | 'manadsvis'>('ingen');
+  const [upprepningarLista, setUpprepningarLista] = useState<UpprepningsRegel[]>([]);
   const [upprepningDagar, setUpprepningDagar] = useState('1');
   const [upprepningVeckoFrekvens, setUpprepningVeckoFrekvens] = useState('Varje');
   const [upprepningVeckodag, setUpprepningVeckodag] = useState('Måndag');
@@ -694,9 +713,15 @@ export default function HomeScreen() {
     setNyKommentar('');
     setValtDatum(new Date());
     setVisaDatumValkare(false);
+
+    setHarStartTid(false);
+    setStartTimme('08');
+    setStartMinut('00');
+    setVisaStartTidValkare(false);
     
     setVisaUpprepningModal(false);
     setUpprepningTyp('ingen');
+    setUpprepningarLista([]);
     setUpprepningDagar('1');
     setUpprepningVeckoFrekvens('Varje');
     setUpprepningVeckodag('Måndag');
@@ -717,6 +742,7 @@ export default function HomeScreen() {
     setValtDatum(new Date());
     setVisaDatumValkare(false);
     setUppgiftSomRedigeras(null);
+    setVisaStartTidValkare(false);
   }
 
   function oppnaRedigeraModal() {
@@ -730,23 +756,33 @@ export default function HomeScreen() {
     setNyKommentar(valdUppgift.kommentar ?? '');
     setValtDatum(strangTillDatum(valdUppgift.datum));
 
-    setUpprepningTyp(valdUppgift.upprepningTyp ?? 'ingen');
-    setUpprepningDagar(String(valdUppgift.upprepningDagar ?? 1));
+    setVisaStartTidValkare(false);
+    setHarStartTid(valdUppgift.harStartTid ?? false);
 
-    setUpprepningVeckoFrekvens(valdUppgift.upprepningVeckoFrekvens ?? 'Varje');
-    setUpprepningVeckodag(valdUppgift.upprepningVeckodag ?? 'Måndag');
+    if (valdUppgift.harStartTid && valdUppgift.startTid) {
+      const delar = valdUppgift.startTid.split(':');
+      setStartTimme(delar[0] ?? '08');
+      setStartMinut(delar[1] ?? '00');
+    } else {
+      setStartTimme('08');
+      setStartMinut('00');
+    }
 
-    setUpprepningManadsFrekvens(valdUppgift.upprepningManadsFrekvens ?? 'Varje');
-    setUpprepningManadsDag(String(valdUppgift.upprepningManadsDag ?? 1));
+    setUpprepningarLista(valdUppgift.upprepningar ?? []);
 
-    setUpprepningManadsDynamisk(valdUppgift.upprepningManadsDynamisk ?? false);
-    setUpprepningManadsPosition(valdUppgift.upprepningManadsPosition ?? 'Första');
-    setUpprepningManadsDynamiskVeckodag(
-      valdUppgift.upprepningManadsDynamiskVeckodag ?? 'Måndag'
-    );
-    setUpprepningManadsDynamiskFrekvens(
-      valdUppgift.upprepningManadsDynamiskFrekvens ?? 'Varje'
-    );
+    setUpprepningTyp('ingen');
+    setUpprepningDagar('1');
+
+    setUpprepningVeckoFrekvens('Varje');
+    setUpprepningVeckodag('Måndag');
+
+    setUpprepningManadsFrekvens('Varje');
+    setUpprepningManadsDag('1');
+
+    setUpprepningManadsDynamisk(false);
+    setUpprepningManadsPosition('Första');
+    setUpprepningManadsDynamiskVeckodag('Måndag');
+    setUpprepningManadsDynamiskFrekvens('Varje');
 
     setValdUppgift(null);
     setVisaDatumValkare(false);
@@ -757,10 +793,64 @@ export default function HomeScreen() {
   function oppnaUpprepningModal() {
     setVisaLaggTillModal(false);
     setVisaDatumValkare(false);
+    setVisaStartTidValkare(false);
     setVisaUpprepningModal(true);
   }
 
   function stangUpprepningModal() {
+    setVisaUpprepningModal(false);
+    setVisaLaggTillModal(true);
+  }
+
+  function sparaUpprepningsRegel() {
+    if (upprepningTyp === 'ingen') {
+      setVisaUpprepningModal(false);
+      setVisaLaggTillModal(true);
+      return;
+    }
+
+    let nyRegel: UpprepningsRegel;
+
+    if (upprepningTyp === 'daglig') {
+      nyRegel = {
+        typ: 'daglig',
+        dagar: Number(upprepningDagar) || 1,
+      };
+    } else if (upprepningTyp === 'veckovis') {
+      nyRegel = {
+        typ: 'veckovis',
+        veckoFrekvens: upprepningVeckoFrekvens,
+        veckodag: upprepningVeckodag,
+      };
+    } else {
+      nyRegel = {
+        typ: 'manadsvis',
+        manadsDynamisk: upprepningManadsDynamisk,
+        manadsFrekvens: !upprepningManadsDynamisk ? upprepningManadsFrekvens : undefined,
+        manadsDag: !upprepningManadsDynamisk ? Number(upprepningManadsDag) || 1 : undefined,
+        manadsPosition: upprepningManadsDynamisk ? upprepningManadsPosition : undefined,
+        manadsDynamiskVeckodag: upprepningManadsDynamisk
+          ? upprepningManadsDynamiskVeckodag
+          : undefined,
+        manadsDynamiskFrekvens: upprepningManadsDynamisk
+          ? upprepningManadsDynamiskFrekvens
+          : undefined,
+      };
+    }
+
+    setUpprepningarLista((nuvarande) => [...nuvarande, nyRegel]);
+
+    setUpprepningTyp('ingen');
+    setUpprepningDagar('1');
+    setUpprepningVeckoFrekvens('Varje');
+    setUpprepningVeckodag('Måndag');
+    setUpprepningManadsFrekvens('Varje');
+    setUpprepningManadsDag('1');
+    setUpprepningManadsDynamisk(false);
+    setUpprepningManadsPosition('Första');
+    setUpprepningManadsDynamiskVeckodag('Måndag');
+    setUpprepningManadsDynamiskFrekvens('Varje');
+
     setVisaUpprepningModal(false);
     setVisaLaggTillModal(true);
   }
@@ -792,40 +882,9 @@ export default function HomeScreen() {
       status: uppgiftSomRedigeras ? uppgiftSomRedigeras.status : 'aktiv',
       datum: datumStrang,
       kommentar: nyKommentar.trim() || undefined,
-
-      upprepningTyp,
-      upprepningDagar:
-        upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
-
-      upprepningVeckoFrekvens:
-        upprepningTyp === 'veckovis' ? upprepningVeckoFrekvens : undefined,
-      upprepningVeckodag:
-        upprepningTyp === 'veckovis' ? upprepningVeckodag : undefined,
-
-      upprepningManadsFrekvens:
-        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-          ? upprepningManadsFrekvens
-          : undefined,
-      upprepningManadsDag:
-        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-          ? Number(upprepningManadsDag) || 1
-          : undefined,
-
-      upprepningManadsDynamisk:
-        upprepningTyp === 'manadsvis' ? upprepningManadsDynamisk : undefined,
-      upprepningManadsPosition:
-        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-          ? upprepningManadsPosition
-          : undefined,
-      upprepningManadsDynamiskVeckodag:
-        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-          ? upprepningManadsDynamiskVeckodag
-          : undefined,
-      upprepningManadsDynamiskFrekvens:
-        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-          ? upprepningManadsDynamiskFrekvens
-          : undefined,
-
+      harStartTid,
+      startTid: harStartTid ? `${startTimme}:${startMinut}` : undefined,
+      upprepningar: upprepningarLista,
       klartDatum: uppgiftSomRedigeras?.klartDatum,
     };
 
@@ -842,20 +901,6 @@ export default function HomeScreen() {
     setUppgiftSomRedigeras(null);
     setAktivFlik(arAktiv(datumStrang) ? 'Aktiva' : 'Kommande');
     stangLaggTillModal();
-  }
-
-  function hanteraKlarUppgift(id: string) {
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === id
-          ? {
-              ...uppgift,
-              status: 'avslutad',
-              klartDatum: datumTillStrang(new Date()),
-            }
-          : uppgift
-      )
-    );
   }
 
   function oppnaUppgift(id: string) {
@@ -880,16 +925,20 @@ export default function HomeScreen() {
       klartDatum: avslutadIdag,
     };
 
-    let nyUppgift: Uppgift | null = null;
+    let nyaUppgifter: Uppgift[] = [];
 
-    if (valdUppgift.upprepningTyp && valdUppgift.upprepningTyp !== 'ingen') {
-      nyUppgift = {
+    if (valdUppgift.upprepningar && valdUppgift.upprepningar.length > 0) {
+      nyaUppgifter = valdUppgift.upprepningar.map((regel, index) => ({
         ...valdUppgift,
-        id: `${Date.now()}`,
+        id: `${Date.now()}-${index}`,
         status: 'aktiv',
-        datum: beraknaNastaDatum(valdUppgift),
+        datum: beraknaNastaDatumFranRegel(valdUppgift.datum, regel),
         klartDatum: undefined,
-      };
+
+        upprepningar: [regel],
+
+      }));
+    
     }
 
     setUppgifter((nuvarandeUppgifter) => {
@@ -897,8 +946,8 @@ export default function HomeScreen() {
         uppgift.id === valdUppgift.id ? uppdateradUppgift : uppgift
       );
 
-      if (nyUppgift) {
-        return [nyUppgift, ...uppdaterade];
+      if (nyaUppgifter.length > 0) {
+        return [...nyaUppgifter, ...uppdaterade];
       }
 
       return uppdaterade;
@@ -1018,82 +1067,16 @@ export default function HomeScreen() {
               textAlignVertical="top"
             />
 
-            <Text style={styles.fieldLabel}>Upprepning</Text>
-
-              {upprepningTyp !== 'ingen' && (
-                <View style={styles.recurrenceSummaryRow}>
-                  <Text style={styles.recurrenceSummaryText}>
-                    {formatUpprepningText({
-                      id: '',
-                      titel: '',
-                      status: 'aktiv',
-                      datum: datumTillStrang(valtDatum),
-                      upprepningTyp,
-                      upprepningDagar: upprepningTyp === 'daglig' ? Number(upprepningDagar) || 1 : undefined,
-                      upprepningVeckoFrekvens:
-                        upprepningTyp === 'veckovis' ? upprepningVeckoFrekvens : undefined,
-                      upprepningVeckodag:
-                        upprepningTyp === 'veckovis' ? upprepningVeckodag : undefined,
-                      upprepningManadsFrekvens:
-                        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-                          ? upprepningManadsFrekvens
-                          : undefined,
-                      upprepningManadsDag:
-                        upprepningTyp === 'manadsvis' && !upprepningManadsDynamisk
-                          ? Number(upprepningManadsDag) || 1
-                          : undefined,
-                      upprepningManadsDynamisk:
-                        upprepningTyp === 'manadsvis' ? upprepningManadsDynamisk : undefined,
-                      upprepningManadsPosition:
-                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                          ? upprepningManadsPosition
-                          : undefined,
-                      upprepningManadsDynamiskVeckodag:
-                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                          ? upprepningManadsDynamiskVeckodag
-                          : undefined,
-                      upprepningManadsDynamiskFrekvens:
-                        upprepningTyp === 'manadsvis' && upprepningManadsDynamisk
-                          ? upprepningManadsDynamiskFrekvens
-                          : undefined,
-                    })}
-                  </Text>
-
-                  <Pressable
-                    style={styles.smallCloseButton}
-                    onPress={() => {
-                      setUpprepningTyp('ingen');
-                      setUpprepningDagar('1');
-
-                      setUpprepningVeckoFrekvens('Varje');
-                      setUpprepningVeckodag('Måndag');
-
-                      setUpprepningManadsFrekvens('Varje');
-                      setUpprepningManadsDag('1');
-
-                      setUpprepningManadsDynamisk(false);
-                      setUpprepningManadsPosition('Första');
-                      setUpprepningManadsDynamiskVeckodag('Måndag');
-                      setUpprepningManadsDynamiskFrekvens('Varje');
-                    }}
-                  >
-                    <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={oppnaUpprepningModal}
-              >
-                <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
-              </Pressable> 
+            
 
             <Text style={styles.fieldLabel}>Datum</Text>
 
               <Pressable
                 style={styles.dateButton}
-                onPress={() => setVisaDatumValkare(true)}
+                onPress={() => {
+                  setVisaStartTidValkare(false);
+                  setVisaDatumValkare(true);
+                }}
               >
                 <Text style={styles.dateButtonText}>
                   {formatVisaValtDatum(datumTillStrang(valtDatum))}
@@ -1112,6 +1095,131 @@ export default function HomeScreen() {
                 />
               </View>
             )}
+
+            <Text style={styles.fieldLabel}>Starttid</Text>
+
+              <View style={styles.startTimeRow}>
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={() => setVisaStartTidValkare((nuvarande) => !nuvarande)}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {harStartTid ? `${startTimme}:${startMinut}` : 'Ingen starttid'}
+                  </Text>
+                </Pressable>
+
+                {harStartTid && (
+                  <Pressable
+                    style={styles.smallCloseButton}
+                    onPress={() => {
+                      setHarStartTid(false);
+                      setStartTimme('08');
+                      setStartMinut('00');
+                      setVisaStartTidValkare(false);
+                    }}
+                  >
+                    <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {visaStartTidValkare && (
+                <View style={styles.doublePickerBox}>
+                  <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
+                    <Picker
+                      style={styles.picker}
+                      itemStyle={styles.pickerItem}
+                      selectedValue={startTimme}
+                      onValueChange={(value) => {
+                        setHarStartTid(true);
+                        setStartTimme(value);
+                      }}
+                    >
+                      <Picker.Item label="00" value="00" />
+                      <Picker.Item label="01" value="01" />
+                      <Picker.Item label="02" value="02" />
+                      <Picker.Item label="03" value="03" />
+                      <Picker.Item label="04" value="04" />
+                      <Picker.Item label="05" value="05" />
+                      <Picker.Item label="06" value="06" />
+                      <Picker.Item label="07" value="07" />
+                      <Picker.Item label="08" value="08" />
+                      <Picker.Item label="09" value="09" />
+                      <Picker.Item label="10" value="10" />
+                      <Picker.Item label="11" value="11" />
+                      <Picker.Item label="12" value="12" />
+                      <Picker.Item label="13" value="13" />
+                      <Picker.Item label="14" value="14" />
+                      <Picker.Item label="15" value="15" />
+                      <Picker.Item label="16" value="16" />
+                      <Picker.Item label="17" value="17" />
+                      <Picker.Item label="18" value="18" />
+                      <Picker.Item label="19" value="19" />
+                      <Picker.Item label="20" value="20" />
+                      <Picker.Item label="21" value="21" />
+                      <Picker.Item label="22" value="22" />
+                      <Picker.Item label="23" value="23" />
+                    </Picker>
+                  </View>
+
+                  <View style={styles.doublePickerColumn}>
+                    <Picker
+                      style={styles.picker}
+                      itemStyle={styles.pickerItem}
+                      selectedValue={startMinut}
+                      onValueChange={(value) => {
+                        setHarStartTid(true);
+                        setStartMinut(value);
+                      }}
+                    >
+                      <Picker.Item label="00" value="00" />
+                      <Picker.Item label="05" value="05" />
+                      <Picker.Item label="10" value="10" />
+                      <Picker.Item label="15" value="15" />
+                      <Picker.Item label="20" value="20" />
+                      <Picker.Item label="25" value="25" />
+                      <Picker.Item label="30" value="30" />
+                      <Picker.Item label="35" value="35" />
+                      <Picker.Item label="40" value="40" />
+                      <Picker.Item label="45" value="45" />
+                      <Picker.Item label="50" value="50" />
+                      <Picker.Item label="55" value="55" />
+                    </Picker>
+                  </View>
+                </View>
+              )}
+
+            <Text style={styles.fieldLabel}>Upprepning</Text>
+
+              {upprepningarLista.length > 0 && (
+                <View style={styles.recurrenceListBox}>
+                  {upprepningarLista.map((regel, index) => (
+                    <View key={index} style={styles.recurrenceSummaryRow}>
+                      <Text style={styles.recurrenceSummaryText}>
+                        {formatUpprepningTextFranRegel(regel)}
+                      </Text>
+
+                      <Pressable
+                        style={styles.smallCloseButton}
+                        onPress={() =>
+                          setUpprepningarLista((nuvarande) =>
+                            nuvarande.filter((_, i) => i !== index)
+                          )
+                        }
+                      >
+                        <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={oppnaUpprepningModal}
+              >
+                <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
+              </Pressable> 
 
             <View style={styles.modalButtonRow}>
               <Pressable style={styles.cancelButton} 
@@ -1453,7 +1561,7 @@ export default function HomeScreen() {
               {upprepningTyp !== 'ingen' && (
                 <Pressable
                   style={[styles.fullWidthConfirmButton, styles.recurrenceConfirmSpacing]}
-                  onPress={stangUpprepningModal}
+                  onPress={sparaUpprepningsRegel}
                 >
                   <Text style={styles.fullWidthConfirmButtonText}>Klar</Text>
                 </Pressable>
@@ -1475,16 +1583,20 @@ export default function HomeScreen() {
               {valdUppgift && (
                 <>
                   <View style={styles.detailHeaderRow}>
-                    <Text style={styles.detailHeaderDate}>
-                      {formatDetaljDatum(valdUppgift)}
-                    </Text>
+                    <Text style={styles.modalTitle}>{valdUppgift.titel}</Text>
 
                     <Pressable style={styles.closeButton} onPress={stangUppgift}>
                       <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
                     </Pressable>
                   </View>
-                  
-                  <Text style={styles.modalTitle}>{valdUppgift.titel}</Text>
+
+                  <Text style={styles.detailTopDate}>
+                    {formatDetaljDatum(valdUppgift).replace(/[()]/g, '')}
+                  </Text>
+
+                  {valdUppgift.harStartTid && valdUppgift.startTid && (
+                    <Text style={styles.detailTopTime}>{valdUppgift.startTid}</Text>
+                  )}
                  
                   <View style={[styles.detailInfoBox, styles.commentSectionSpacing]}>
                     
@@ -1497,9 +1609,15 @@ export default function HomeScreen() {
 
                   <View style={[styles.detailInfoBox, styles.recurrenceSectionSpacing]}>
                     
-                    <Text style={styles.detailInfoValue}>
-                      {formatUpprepningText(valdUppgift)}
-                    </Text>
+                    {valdUppgift.upprepningar && valdUppgift.upprepningar.length > 0 ? (
+                      valdUppgift.upprepningar.map((regel, index) => (
+                        <Text key={index} style={styles.detailInfoValue}>
+                          {formatUpprepningTextFranRegel(regel)}
+                        </Text>
+                      ))
+                    ) : (
+                      <Text style={styles.detailInfoValue}>Ingen upprepning</Text>
+                    )}
                   </View>
 
                   <View style={[styles.modalButtonColumn, styles.detailButtonSpacing]}>
@@ -1625,6 +1743,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  taskRightColumn: {
+    alignItems: 'flex-end',
+  },
+  taskTimeText: {
+    marginTop: 4,
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '500',
+  },
   emptyText: {
     fontSize: 15,
     color: '#666',
@@ -1644,8 +1771,10 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
   },
   modalTitle: {
+    flex: 1,
     fontSize: 20,
     fontWeight: '700',
+    marginRight: 12,
   },
   modalScrollContent: {
     gap: 16,
@@ -1755,6 +1884,18 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
   },
+  detailTopDate: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#444',
+  },
+  detailTopTime: {
+    marginTop: 4,
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
   detailActionRow: {
     flexDirection: 'row',
     gap: 12,
@@ -1839,6 +1980,11 @@ const styles = StyleSheet.create({
   },
   recurrenceTypeButtonTextActive: {
     color: '#fff',
+  },
+  recurrenceListBox: {
+    gap: 8,
+    marginTop: -6,
+    marginBottom: 8,
   },
   dynamicSectionBox: {
     backgroundColor: '#fffdfd',
@@ -1933,6 +2079,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 10,
   },
   detailHeaderDate: {
     fontSize: 14,
@@ -1988,6 +2135,23 @@ const styles = StyleSheet.create({
   },
   datePickerWrapper: {
     alignItems: 'center',
+  },
+  startTimeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  startTimeSummaryText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#555',
+  },
+  startTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 
   /* Space between details */
