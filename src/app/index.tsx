@@ -14,6 +14,10 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { TaskDetailModal } from '../components/task-detail-modal';
+
 
 type UpprepningsRegel = {
   typ: 'daglig' | 'veckovis' | 'manadsvis';
@@ -52,6 +56,8 @@ type Flik = 'Aktiva' | 'Kommande' | 'Avslutade';
 type UppgiftsSektionProps = {
   uppgifter: Uppgift[];
   onTryckUppgift?: (id: string) => void;
+  kanSwipeKlar?: boolean;
+  onSwipeKlar?: (uppgift: Uppgift) => void;
 };
 
 const STORAGE_KEY = 'uppgifter';
@@ -548,13 +554,22 @@ function skapaStartUppgifter(): Uppgift[] {
   ];
 }
 
+function SwipeKlarBakgrund() {
+  return (
+    <View style={styles.swipeCompleteBackground}>
+      <Text style={styles.swipeCompleteText}>Klar</Text>
+    </View>
+  );
+}
+
 function UppgiftsSektion({
   uppgifter,
   onTryckUppgift,
+  kanSwipeKlar = false,
+  onSwipeKlar,
 }: UppgiftsSektionProps) {
   return (
     <View style={styles.taskList}>
-
       {uppgifter.length === 0 ? (
         <Text style={styles.emptyText}>Inga uppgifter</Text>
       ) : (
@@ -569,9 +584,8 @@ function UppgiftsSektion({
             visningstext = formatKommandeText(uppgift.datum);
           }
 
-          return (
+          const taskKort = (
             <Pressable
-              key={uppgift.id}
               onPress={() => onTryckUppgift?.(uppgift.id)}
               style={hamtaTaskCardStyle(uppgift)}
             >
@@ -583,7 +597,9 @@ function UppgiftsSektion({
                 </Text>
 
                 <View style={styles.taskRightColumn}>
-                  <Text style={styles.taskDueText}>{visningstext.replace(/[()]/g, '')}</Text>
+                  <Text style={styles.taskDueText}>
+                    {visningstext.replace(/[()]/g, '')}
+                  </Text>
 
                   {uppgift.harStartTid && uppgift.startTid && (
                     <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
@@ -599,6 +615,22 @@ function UppgiftsSektion({
                 </Text>
               )}
             </Pressable>
+          );
+
+          return kanSwipeKlar && uppgift.status === 'aktiv' ? (
+            <Swipeable
+              key={uppgift.id}
+              renderLeftActions={SwipeKlarBakgrund}
+              leftThreshold={120}
+              overshootLeft={false}
+              onSwipeableOpen={() => {
+                onSwipeKlar?.(uppgift);
+              }}
+            >
+              {taskKort}
+            </Swipeable>
+          ) : (
+            <View key={uppgift.id}>{taskKort}</View>
           );
         })
       )}
@@ -912,38 +944,31 @@ export default function HomeScreen() {
     setValdUppgift(null);
   }
 
-  function hanteraKlarFranDetalj() {
-    if (!valdUppgift) {
-      return;
-    }
-
+  function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
     const avslutadIdag = datumTillStrang(new Date());
 
     const uppdateradUppgift: Uppgift = {
-      ...valdUppgift,
+      ...uppgiftAttSlutfora,
       status: 'avslutad',
       klartDatum: avslutadIdag,
     };
 
     let nyaUppgifter: Uppgift[] = [];
 
-    if (valdUppgift.upprepningar && valdUppgift.upprepningar.length > 0) {
-      nyaUppgifter = valdUppgift.upprepningar.map((regel, index) => ({
-        ...valdUppgift,
+    if (uppgiftAttSlutfora.upprepningar && uppgiftAttSlutfora.upprepningar.length > 0) {
+      nyaUppgifter = uppgiftAttSlutfora.upprepningar.map((regel, index) => ({
+        ...uppgiftAttSlutfora,
         id: `${Date.now()}-${index}`,
         status: 'aktiv',
-        datum: beraknaNastaDatumFranRegel(valdUppgift.datum, regel),
+        datum: beraknaNastaDatumFranRegel(uppgiftAttSlutfora.datum, regel),
         klartDatum: undefined,
-
         upprepningar: [regel],
-
       }));
-    
     }
 
     setUppgifter((nuvarandeUppgifter) => {
       const uppdaterade = nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === valdUppgift.id ? uppdateradUppgift : uppgift
+        uppgift.id === uppgiftAttSlutfora.id ? uppdateradUppgift : uppgift
       );
 
       if (nyaUppgifter.length > 0) {
@@ -953,7 +978,14 @@ export default function HomeScreen() {
       return uppdaterade;
     });
 
-    setAktivFlik('Avslutade');
+  }
+
+  function hanteraKlarFranDetalj() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    markeraUppgiftSomKlar(valdUppgift);
     stangUppgift();
   }
 
@@ -991,6 +1023,8 @@ export default function HomeScreen() {
       <UppgiftsSektion
         uppgifter={aktivaUppgifter}
         onTryckUppgift={oppnaUppgift}
+        kanSwipeKlar={true}
+        onSwipeKlar={markeraUppgiftSomKlar}
       />
     );
   } else if (aktivFlik === 'Kommande') {
@@ -1010,342 +1044,156 @@ export default function HomeScreen() {
   }
 
   return (
-   <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-    <View style={styles.container}>
-      <Pressable style={styles.addButton} onPress={oppnaLaggTillModal}>
-        <Text style={styles.addButtonText}>Lägg till ny</Text>
-      </Pressable>
+   <GestureHandlerRootView style={{ flex: 1 }}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <View style={styles.container}>
+        <Pressable style={styles.addButton} onPress={oppnaLaggTillModal}>
+          <Text style={styles.addButtonText}>Lägg till ny</Text>
+        </Pressable>
 
-      <View style={styles.tabRow}>
-        <FlikKnapp titel="Aktiva" aktivFlik={aktivFlik} onPress={setAktivFlik} />
-        <FlikKnapp titel="Kommande" aktivFlik={aktivFlik} onPress={setAktivFlik} />
-        <FlikKnapp titel="Avslutade" aktivFlik={aktivFlik} onPress={setAktivFlik} />
-      </View>
-
-      <ScrollView
-        style={styles.contentScroll}
-        contentContainerStyle={styles.contentScrollInner}
-        keyboardShouldPersistTaps="handled"
-      >
-        {innehall}
-      </ScrollView>
-
-      
-      <Modal
-        visible={visaLaggTillModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={stangLaggTillModal}
-      >
-       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <ScrollView
-             contentContainerStyle={styles.modalScrollContent}
-             keyboardShouldPersistTaps="handled"
-             >
-            <Text style={styles.modalTitle}>
-              {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Skriv titel..."
-              placeholderTextColor="#777"
-              value={nyTitel}
-              onChangeText={setNyTitel}
-              autoFocus
-            />
-
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Kommentar..."
-              placeholderTextColor="#777"
-              value={nyKommentar}
-              onChangeText={setNyKommentar}
-              multiline
-              textAlignVertical="top"
-            />
-
-            
-
-            <Text style={styles.fieldLabel}>Datum</Text>
-
-              <Pressable
-                style={styles.dateButton}
-                onPress={() => {
-                  setVisaStartTidValkare(false);
-                  setVisaDatumValkare(true);
-                }}
-              >
-                <Text style={styles.dateButtonText}>
-                  {formatVisaValtDatum(datumTillStrang(valtDatum))}
-                </Text>
-              </Pressable>
-
-            {visaDatumValkare && (
-              <View style={styles.datePickerWrapper}>
-                <DateTimePicker
-                  value={valtDatum}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                  themeVariant="light"
-                  accentColor="#1f6feb"
-                  onChange={hanteraDatumAndring}
-                />
-              </View>
-            )}
-
-            <Text style={styles.fieldLabel}>Starttid</Text>
-
-              <View style={styles.startTimeRow}>
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() => setVisaStartTidValkare((nuvarande) => !nuvarande)}
-                >
-                  <Text style={styles.secondaryButtonText}>
-                    {harStartTid ? `${startTimme}:${startMinut}` : 'Ingen starttid'}
-                  </Text>
-                </Pressable>
-
-                {harStartTid && (
-                  <Pressable
-                    style={styles.smallCloseButton}
-                    onPress={() => {
-                      setHarStartTid(false);
-                      setStartTimme('08');
-                      setStartMinut('00');
-                      setVisaStartTidValkare(false);
-                    }}
-                  >
-                    <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
-                  </Pressable>
-                )}
-              </View>
-
-              {visaStartTidValkare && (
-                <View style={styles.doublePickerBox}>
-                  <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
-                    <Picker
-                      style={styles.picker}
-                      itemStyle={styles.pickerItem}
-                      selectedValue={startTimme}
-                      onValueChange={(value) => {
-                        setHarStartTid(true);
-                        setStartTimme(value);
-                      }}
-                    >
-                      <Picker.Item label="00" value="00" />
-                      <Picker.Item label="01" value="01" />
-                      <Picker.Item label="02" value="02" />
-                      <Picker.Item label="03" value="03" />
-                      <Picker.Item label="04" value="04" />
-                      <Picker.Item label="05" value="05" />
-                      <Picker.Item label="06" value="06" />
-                      <Picker.Item label="07" value="07" />
-                      <Picker.Item label="08" value="08" />
-                      <Picker.Item label="09" value="09" />
-                      <Picker.Item label="10" value="10" />
-                      <Picker.Item label="11" value="11" />
-                      <Picker.Item label="12" value="12" />
-                      <Picker.Item label="13" value="13" />
-                      <Picker.Item label="14" value="14" />
-                      <Picker.Item label="15" value="15" />
-                      <Picker.Item label="16" value="16" />
-                      <Picker.Item label="17" value="17" />
-                      <Picker.Item label="18" value="18" />
-                      <Picker.Item label="19" value="19" />
-                      <Picker.Item label="20" value="20" />
-                      <Picker.Item label="21" value="21" />
-                      <Picker.Item label="22" value="22" />
-                      <Picker.Item label="23" value="23" />
-                    </Picker>
-                  </View>
-
-                  <View style={styles.doublePickerColumn}>
-                    <Picker
-                      style={styles.picker}
-                      itemStyle={styles.pickerItem}
-                      selectedValue={startMinut}
-                      onValueChange={(value) => {
-                        setHarStartTid(true);
-                        setStartMinut(value);
-                      }}
-                    >
-                      <Picker.Item label="00" value="00" />
-                      <Picker.Item label="05" value="05" />
-                      <Picker.Item label="10" value="10" />
-                      <Picker.Item label="15" value="15" />
-                      <Picker.Item label="20" value="20" />
-                      <Picker.Item label="25" value="25" />
-                      <Picker.Item label="30" value="30" />
-                      <Picker.Item label="35" value="35" />
-                      <Picker.Item label="40" value="40" />
-                      <Picker.Item label="45" value="45" />
-                      <Picker.Item label="50" value="50" />
-                      <Picker.Item label="55" value="55" />
-                    </Picker>
-                  </View>
-                </View>
-              )}
-
-            <Text style={styles.fieldLabel}>Upprepning</Text>
-
-              {upprepningarLista.length > 0 && (
-                <View style={styles.recurrenceListBox}>
-                  {upprepningarLista.map((regel, index) => (
-                    <View key={index} style={styles.recurrenceSummaryRow}>
-                      <Text style={styles.recurrenceSummaryText}>
-                        {formatUpprepningTextFranRegel(regel)}
-                      </Text>
-
-                      <Pressable
-                        style={styles.smallCloseButton}
-                        onPress={() =>
-                          setUpprepningarLista((nuvarande) =>
-                            nuvarande.filter((_, i) => i !== index)
-                          )
-                        }
-                      >
-                        <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={oppnaUpprepningModal}
-              >
-                <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
-              </Pressable> 
-
-            <View style={styles.modalButtonRow}>
-              <Pressable style={styles.cancelButton} 
-                onPress={stangLaggTillModal}
-              >
-                <Text style={styles.cancelButtonText}>Avbryt</Text>
-              </Pressable>
-
-              <Pressable style={styles.confirmButton} onPress={hanteraLaggTillUppgift}>
-                <Text style={styles.confirmButtonText}>Godkänn</Text>
-              </Pressable>
-            </View>
-            </ScrollView>
-          </View>
+        <View style={styles.tabRow}>
+          <FlikKnapp titel="Aktiva" aktivFlik={aktivFlik} onPress={setAktivFlik} />
+          <FlikKnapp titel="Kommande" aktivFlik={aktivFlik} onPress={setAktivFlik} />
+          <FlikKnapp titel="Avslutade" aktivFlik={aktivFlik} onPress={setAktivFlik} />
         </View>
-       </TouchableWithoutFeedback>
-      </Modal>
-      
-      <Modal
-        visible={visaUpprepningModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setVisaUpprepningModal(false)}
-      >
+
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.contentScrollInner}
+          keyboardShouldPersistTaps="handled"
+        >
+          {innehall}
+        </ScrollView>
+
+        
+        <Modal
+          visible={visaLaggTillModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={stangLaggTillModal}
+        >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <View style={[styles.modalHeaderRow, styles.recurrenceHeaderSpacing]}>
-                <Text style={styles.modalTitle}>Upprepning</Text>
+              <ScrollView
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              >
+              <Text style={styles.modalTitle}>
+                {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Skriv titel..."
+                placeholderTextColor="#777"
+                value={nyTitel}
+                onChangeText={setNyTitel}
+                autoFocus
+              />
+
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Kommentar..."
+                placeholderTextColor="#777"
+                value={nyKommentar}
+                onChangeText={setNyKommentar}
+                multiline
+                textAlignVertical="top"
+              />
+
+              
+
+              <Text style={styles.fieldLabel}>Datum</Text>
 
                 <Pressable
-                  style={styles.closeButton}
-                  onPress={stangUpprepningModal}
-                >
-                  <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
-                </Pressable>
-              </View>
-
-              <View style={[styles.recurrenceTypeRow, styles.recurrenceTypeRowSpacing]}>
-                <Pressable
-                  style={[
-                    styles.recurrenceTypeButton,
-                    upprepningTyp === 'daglig' && styles.recurrenceTypeButtonActive,
-                  ]}
-                  onPress={() => setUpprepningTyp('daglig')}
-                >
-                  <Text
-                    style={[
-                      styles.recurrenceTypeButtonText,
-                      upprepningTyp === 'daglig' && styles.recurrenceTypeButtonTextActive,
-                    ]}
-                  >
-                    Dagsvis
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={[
-                    styles.recurrenceTypeButton,
-                    upprepningTyp === 'veckovis' && styles.recurrenceTypeButtonActive,
-                  ]}
+                  style={styles.dateButton}
                   onPress={() => {
-                    setUpprepningTyp('veckovis');
-                    setUpprepningManadsDynamisk(false);
+                    setVisaStartTidValkare(false);
+                    setVisaDatumValkare(true);
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.recurrenceTypeButtonText,
-                      upprepningTyp === 'veckovis' && styles.recurrenceTypeButtonTextActive,
-                    ]}
-                  >
-                    Veckovis
+                  <Text style={styles.dateButtonText}>
+                    {formatVisaValtDatum(datumTillStrang(valtDatum))}
                   </Text>
                 </Pressable>
 
-                <Pressable
-                  style={[
-                    styles.recurrenceTypeButton,
-                    upprepningTyp === 'manadsvis' && styles.recurrenceTypeButtonActive,
-                  ]}
-                  onPress={() => setUpprepningTyp('manadsvis')}
-                >
-                  <Text
-                    style={[
-                      styles.recurrenceTypeButtonText,
-                      upprepningTyp === 'manadsvis' && styles.recurrenceTypeButtonTextActive,
-                    ]}
-                  >
-                    Månadsvis
-                  </Text>
-                </Pressable>
-              </View>
-
-              {upprepningTyp === 'daglig' && (
-                <View style={styles.detailInfoBox}>
-                  <Text style={styles.detailInfoLabel}>Dagar mellan upprepningar</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={upprepningDagar}
-                    onChangeText={setUpprepningDagar}
-                    keyboardType="number-pad"
-                    placeholder="1"
-                    placeholderTextColor="#666"
+              {visaDatumValkare && (
+                <View style={styles.datePickerWrapper}>
+                  <DateTimePicker
+                    value={valtDatum}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                    themeVariant="light"
+                    accentColor="#1f6feb"
+                    onChange={hanteraDatumAndring}
                   />
                 </View>
               )}
 
-              {upprepningTyp === 'veckovis' && (
-                <View style={styles.detailInfoBox}>
-                  
+              <Text style={styles.fieldLabel}>Starttid</Text>
 
+                <View style={styles.startTimeRow}>
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => setVisaStartTidValkare((nuvarande) => !nuvarande)}
+                  >
+                    <Text style={styles.secondaryButtonText}>
+                      {harStartTid ? `${startTimme}:${startMinut}` : 'Ingen starttid'}
+                    </Text>
+                  </Pressable>
+
+                  {harStartTid && (
+                    <Pressable
+                      style={styles.smallCloseButton}
+                      onPress={() => {
+                        setHarStartTid(false);
+                        setStartTimme('08');
+                        setStartMinut('00');
+                        setVisaStartTidValkare(false);
+                      }}
+                    >
+                      <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
+                    </Pressable>
+                  )}
+                </View>
+
+                {visaStartTidValkare && (
                   <View style={styles.doublePickerBox}>
                     <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
                       <Picker
                         style={styles.picker}
                         itemStyle={styles.pickerItem}
-                        selectedValue={upprepningVeckoFrekvens}
-                        onValueChange={(value) => setUpprepningVeckoFrekvens(value)}
+                        selectedValue={startTimme}
+                        onValueChange={(value) => {
+                          setHarStartTid(true);
+                          setStartTimme(value);
+                        }}
                       >
-                        <Picker.Item label="Varje" value="Varje" />
-                        <Picker.Item label="Varannan" value="Varannan" />
-                        <Picker.Item label="Var 3e" value="Var 3e" />
-                        <Picker.Item label="Var 4e" value="Var 4e" />
-                        <Picker.Item label="Var 5e" value="Var 5e" />
-                        <Picker.Item label="Var 6e" value="Var 6e" />
+                        <Picker.Item label="00" value="00" />
+                        <Picker.Item label="01" value="01" />
+                        <Picker.Item label="02" value="02" />
+                        <Picker.Item label="03" value="03" />
+                        <Picker.Item label="04" value="04" />
+                        <Picker.Item label="05" value="05" />
+                        <Picker.Item label="06" value="06" />
+                        <Picker.Item label="07" value="07" />
+                        <Picker.Item label="08" value="08" />
+                        <Picker.Item label="09" value="09" />
+                        <Picker.Item label="10" value="10" />
+                        <Picker.Item label="11" value="11" />
+                        <Picker.Item label="12" value="12" />
+                        <Picker.Item label="13" value="13" />
+                        <Picker.Item label="14" value="14" />
+                        <Picker.Item label="15" value="15" />
+                        <Picker.Item label="16" value="16" />
+                        <Picker.Item label="17" value="17" />
+                        <Picker.Item label="18" value="18" />
+                        <Picker.Item label="19" value="19" />
+                        <Picker.Item label="20" value="20" />
+                        <Picker.Item label="21" value="21" />
+                        <Picker.Item label="22" value="22" />
+                        <Picker.Item label="23" value="23" />
                       </Picker>
                     </View>
 
@@ -1353,308 +1201,425 @@ export default function HomeScreen() {
                       <Picker
                         style={styles.picker}
                         itemStyle={styles.pickerItem}
-                        selectedValue={upprepningVeckodag}
-                        onValueChange={(value) => setUpprepningVeckodag(value)}
+                        selectedValue={startMinut}
+                        onValueChange={(value) => {
+                          setHarStartTid(true);
+                          setStartMinut(value);
+                        }}
                       >
-                        <Picker.Item label="Måndag" value="Måndag" />
-                        <Picker.Item label="Tisdag" value="Tisdag" />
-                        <Picker.Item label="Onsdag" value="Onsdag" />
-                        <Picker.Item label="Torsdag" value="Torsdag" />
-                        <Picker.Item label="Fredag" value="Fredag" />
-                        <Picker.Item label="Lördag" value="Lördag" />
-                        <Picker.Item label="Söndag" value="Söndag" />
+                        <Picker.Item label="00" value="00" />
+                        <Picker.Item label="05" value="05" />
+                        <Picker.Item label="10" value="10" />
+                        <Picker.Item label="15" value="15" />
+                        <Picker.Item label="20" value="20" />
+                        <Picker.Item label="25" value="25" />
+                        <Picker.Item label="30" value="30" />
+                        <Picker.Item label="35" value="35" />
+                        <Picker.Item label="40" value="40" />
+                        <Picker.Item label="45" value="45" />
+                        <Picker.Item label="50" value="50" />
+                        <Picker.Item label="55" value="55" />
                       </Picker>
                     </View>
                   </View>
-                </View>
-              )}
+                )}
 
-              {upprepningTyp === 'manadsvis' && (
-                <View style={styles.detailInfoBox}>
-                  <View style={styles.dynamicSectionBox}>
-                    <View style={styles.dynamicRow}>
-                      <Text style={styles.detailInfoLabel}>Dynamisk</Text>
+              <Text style={styles.fieldLabel}>Upprepning</Text>
 
-                      <Pressable
-                        style={[
-                          styles.switchTrack,
-                          upprepningManadsDynamisk && styles.switchTrackActive,
-                        ]}
-                        onPress={() =>
-                          setUpprepningManadsDynamisk((nuvarande) => !nuvarande)
-                        }
-                      >
-                        <View
-                          style={[
-                            styles.switchThumb,
-                            upprepningManadsDynamisk && styles.switchThumbActive,
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            styles.switchLabelLeft,
-                            upprepningManadsDynamisk && styles.switchLabelHidden,
-                          ]}
-                        >
-                          Nej
-                        </Text>
-                        <Text
-                          style={[
-                            styles.switchLabelRight,
-                            !upprepningManadsDynamisk && styles.switchLabelHidden,
-                          ]}
-                        >
-                          Ja
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  {upprepningManadsDynamisk ? (
-                    <>
-                      <View style={styles.positionButtonRow}>
-                        <Pressable
-                          style={[
-                            styles.positionButton,
-                            upprepningManadsPosition === 'Första' && styles.positionButtonActive,
-                          ]}
-                          onPress={() => setUpprepningManadsPosition('Första')}
-                        >
-                          <Text
-                            style={[
-                              styles.positionButtonText,
-                              upprepningManadsPosition === 'Första' && styles.positionButtonTextActive,
-                            ]}
-                          >
-                            Första
-                          </Text>
-                        </Pressable>
-
-                        <Pressable
-                          style={[
-                            styles.positionButton,
-                            upprepningManadsPosition === 'Sista' && styles.positionButtonActive,
-                          ]}
-                          onPress={() => setUpprepningManadsPosition('Sista')}
-                        >
-                          <Text
-                            style={[
-                              styles.positionButtonText,
-                              upprepningManadsPosition === 'Sista' && styles.positionButtonTextActive,
-                            ]}
-                          >
-                            Sista
-                          </Text>
-                        </Pressable>
-                      </View>
-
-                      <View style={styles.pickerLabelRow}>
-                        <Text style={styles.halfPickerLabel}>Veckodag</Text>
-                        <Text style={styles.halfPickerLabel}>Hur ofta</Text>
-                      </View>
-
-                      <View style={styles.doublePickerBox}>
-                        <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
-                          <Picker
-                            style={styles.picker}
-                            itemStyle={styles.pickerItem}
-                            selectedValue={upprepningManadsDynamiskVeckodag}
-                            onValueChange={(value) => setUpprepningManadsDynamiskVeckodag(value)}
-                          >
-                            <Picker.Item label="Måndag" value="Måndag" />
-                            <Picker.Item label="Tisdag" value="Tisdag" />
-                            <Picker.Item label="Onsdag" value="Onsdag" />
-                            <Picker.Item label="Torsdag" value="Torsdag" />
-                            <Picker.Item label="Fredag" value="Fredag" />
-                            <Picker.Item label="Lördag" value="Lördag" />
-                            <Picker.Item label="Söndag" value="Söndag" />
-                          </Picker>
-                        </View>
-
-                        <View style={styles.doublePickerColumn}>
-                          <Picker
-                            style={styles.picker}
-                            itemStyle={styles.pickerItem}
-                            selectedValue={upprepningManadsDynamiskFrekvens}
-                            onValueChange={(value) => setUpprepningManadsDynamiskFrekvens(value)}
-                          >
-                            <Picker.Item label="Varje" value="Varje" />
-                            <Picker.Item label="Varannan" value="Varannan" />
-                            <Picker.Item label="Var 3e" value="Var 3e" />
-                            <Picker.Item label="Var 4e" value="Var 4e" />
-                            <Picker.Item label="Var 5e" value="Var 5e" />
-                            <Picker.Item label="Var 6e" value="Var 6e" />
-                          </Picker>
-                        </View>
-                      </View>
-                    </>
-                  ) : (
-                    <>
-                      <View style={styles.pickerLabelRow}>
-                        <Text style={styles.halfPickerLabel}>Hur ofta</Text>
-                        <Text style={styles.halfPickerLabel}>Dag i månaden</Text>
-                      </View>
-
-                      <View style={styles.doublePickerBox}>
-                        <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
-                          <Picker
-                            style={styles.picker}
-                            itemStyle={styles.pickerItem}
-                            selectedValue={upprepningManadsFrekvens}
-                            onValueChange={(value) => setUpprepningManadsFrekvens(value)}
-                          >
-                            <Picker.Item label="Varje" value="Varje" />
-                            <Picker.Item label="Varannan" value="Varannan" />
-                            <Picker.Item label="Var 3e" value="Var 3e" />
-                            <Picker.Item label="Var 4e" value="Var 4e" />
-                            <Picker.Item label="Var 5e" value="Var 5e" />
-                            <Picker.Item label="Var 6e" value="Var 6e" />
-                          </Picker>
-                        </View>
-
-                        <View style={styles.doublePickerColumn}>
-                          <Picker
-                            style={styles.picker}
-                            itemStyle={styles.pickerItem}
-                            selectedValue={upprepningManadsDag}
-                            onValueChange={(value) => setUpprepningManadsDag(value)}
-                          >
-                            <Picker.Item label="1" value="1" />
-                            <Picker.Item label="2" value="2" />
-                            <Picker.Item label="3" value="3" />
-                            <Picker.Item label="4" value="4" />
-                            <Picker.Item label="5" value="5" />
-                            <Picker.Item label="6" value="6" />
-                            <Picker.Item label="7" value="7" />
-                            <Picker.Item label="8" value="8" />
-                            <Picker.Item label="9" value="9" />
-                            <Picker.Item label="10" value="10" />
-                            <Picker.Item label="11" value="11" />
-                            <Picker.Item label="12" value="12" />
-                            <Picker.Item label="13" value="13" />
-                            <Picker.Item label="14" value="14" />
-                            <Picker.Item label="15" value="15" />
-                            <Picker.Item label="16" value="16" />
-                            <Picker.Item label="17" value="17" />
-                            <Picker.Item label="18" value="18" />
-                            <Picker.Item label="19" value="19" />
-                            <Picker.Item label="20" value="20" />
-                            <Picker.Item label="21" value="21" />
-                            <Picker.Item label="22" value="22" />
-                            <Picker.Item label="23" value="23" />
-                            <Picker.Item label="24" value="24" />
-                            <Picker.Item label="25" value="25" />
-                            <Picker.Item label="26" value="26" />
-                            <Picker.Item label="27" value="27" />
-                            <Picker.Item label="28" value="28" />
-                            <Picker.Item label="29" value="29" />
-                            <Picker.Item label="30" value="30" />
-                            <Picker.Item label="31" value="31" />
-                          </Picker>
-                        </View>
-                      </View>
-                    </>
-                  )}
-                </View>
-              )}
-
-              {upprepningTyp !== 'ingen' && (
-                <Pressable
-                  style={[styles.fullWidthConfirmButton, styles.recurrenceConfirmSpacing]}
-                  onPress={sparaUpprepningsRegel}
-                >
-                  <Text style={styles.fullWidthConfirmButtonText}>Klar</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      <Modal
-        visible={valdUppgift !== null}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setValdUppgift(null)}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              {valdUppgift && (
-                <>
-                  <View style={styles.detailHeaderRow}>
-                    <Text style={styles.modalTitle}>{valdUppgift.titel}</Text>
-
-                    <Pressable style={styles.closeButton} onPress={stangUppgift}>
-                      <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
-                    </Pressable>
-                  </View>
-
-                  <Text style={styles.detailTopDate}>
-                    {formatDetaljDatum(valdUppgift).replace(/[()]/g, '')}
-                  </Text>
-
-                  {valdUppgift.harStartTid && valdUppgift.startTid && (
-                    <Text style={styles.detailTopTime}>{valdUppgift.startTid}</Text>
-                  )}
-                 
-                  <View style={[styles.detailInfoBox, styles.commentSectionSpacing]}>
-                    
-
-                    <Text style={styles.detailInfoValue}>
-                      {valdUppgift.kommentar ? valdUppgift.kommentar : 'Ingen kommentar'}
-                    </Text>
-
-                  </View>
-
-                  <View style={[styles.detailInfoBox, styles.recurrenceSectionSpacing]}>
-                    
-                    {valdUppgift.upprepningar && valdUppgift.upprepningar.length > 0 ? (
-                      valdUppgift.upprepningar.map((regel, index) => (
-                        <Text key={index} style={styles.detailInfoValue}>
+                {upprepningarLista.length > 0 && (
+                  <View style={styles.recurrenceListBox}>
+                    {upprepningarLista.map((regel, index) => (
+                      <View key={index} style={styles.recurrenceSummaryRow}>
+                        <Text style={styles.recurrenceSummaryText}>
                           {formatUpprepningTextFranRegel(regel)}
                         </Text>
-                      ))
-                    ) : (
-                      <Text style={styles.detailInfoValue}>Ingen upprepning</Text>
-                    )}
+
+                        <Pressable
+                          style={styles.smallCloseButton}
+                          onPress={() =>
+                            setUpprepningarLista((nuvarande) =>
+                              nuvarande.filter((_, i) => i !== index)
+                            )
+                          }
+                        >
+                          <Text style={styles.smallCloseButtonText}>{'\u00D7'}</Text>
+                        </Pressable>
+                      </View>
+                    ))}
                   </View>
+                )}
 
-                  <View style={[styles.modalButtonColumn, styles.detailButtonSpacing]}>
-                    {valdUppgift.status !== 'avslutad' && (
-                      <Pressable
-                        style={styles.completeButton}
-                        onPress={hanteraKlarFranDetalj}
-                      >
-                        <Text style={styles.completeButtonText}>Klar</Text>
-                      </Pressable>
-                    )}
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={oppnaUpprepningModal}
+                >
+                  <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
+                </Pressable> 
 
-                    <View style={styles.detailActionRow}>
-                      <Pressable
-                        style={styles.editButton}
-                        onPress={oppnaRedigeraModal}
-                      >
-                        <Text style={styles.editButtonText}>Redigera</Text>
-                      </Pressable>
+              <View style={styles.modalButtonRow}>
+                <Pressable style={styles.cancelButton} 
+                  onPress={stangLaggTillModal}
+                >
+                  <Text style={styles.cancelButtonText}>Avbryt</Text>
+                </Pressable>
 
-                      <Pressable
-                        style={styles.deleteButton}
-                        onPress={hanteraTaBortFranDetalj}
-                      >
-                        <Text style={styles.deleteButtonText}>Ta bort</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </>
-              )}
+                <Pressable style={styles.confirmButton} onPress={hanteraLaggTillUppgift}>
+                  <Text style={styles.confirmButtonText}>Godkänn</Text>
+                </Pressable>
+              </View>
+              </ScrollView>
             </View>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
+        </Modal>
+        
+        <Modal
+          visible={visaUpprepningModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setVisaUpprepningModal(false)}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <View style={[styles.modalHeaderRow, styles.recurrenceHeaderSpacing]}>
+                  <Text style={styles.modalTitle}>Upprepning</Text>
 
-    </View>
-   </TouchableWithoutFeedback>
+                  <Pressable
+                    style={styles.closeButton}
+                    onPress={stangUpprepningModal}
+                  >
+                    <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
+                  </Pressable>
+                </View>
+
+                <View style={[styles.recurrenceTypeRow, styles.recurrenceTypeRowSpacing]}>
+                  <Pressable
+                    style={[
+                      styles.recurrenceTypeButton,
+                      upprepningTyp === 'daglig' && styles.recurrenceTypeButtonActive,
+                    ]}
+                    onPress={() => setUpprepningTyp('daglig')}
+                  >
+                    <Text
+                      style={[
+                        styles.recurrenceTypeButtonText,
+                        upprepningTyp === 'daglig' && styles.recurrenceTypeButtonTextActive,
+                      ]}
+                    >
+                      Dagsvis
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.recurrenceTypeButton,
+                      upprepningTyp === 'veckovis' && styles.recurrenceTypeButtonActive,
+                    ]}
+                    onPress={() => {
+                      setUpprepningTyp('veckovis');
+                      setUpprepningManadsDynamisk(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.recurrenceTypeButtonText,
+                        upprepningTyp === 'veckovis' && styles.recurrenceTypeButtonTextActive,
+                      ]}
+                    >
+                      Veckovis
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.recurrenceTypeButton,
+                      upprepningTyp === 'manadsvis' && styles.recurrenceTypeButtonActive,
+                    ]}
+                    onPress={() => setUpprepningTyp('manadsvis')}
+                  >
+                    <Text
+                      style={[
+                        styles.recurrenceTypeButtonText,
+                        upprepningTyp === 'manadsvis' && styles.recurrenceTypeButtonTextActive,
+                      ]}
+                    >
+                      Månadsvis
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {upprepningTyp === 'daglig' && (
+                  <View style={styles.detailInfoBox}>
+                    <Text style={styles.detailInfoLabel}>Dagar mellan upprepningar</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={upprepningDagar}
+                      onChangeText={setUpprepningDagar}
+                      keyboardType="number-pad"
+                      placeholder="1"
+                      placeholderTextColor="#666"
+                    />
+                  </View>
+                )}
+
+                {upprepningTyp === 'veckovis' && (
+                  <View style={styles.detailInfoBox}>
+                    
+
+                    <View style={styles.doublePickerBox}>
+                      <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
+                        <Picker
+                          style={styles.picker}
+                          itemStyle={styles.pickerItem}
+                          selectedValue={upprepningVeckoFrekvens}
+                          onValueChange={(value) => setUpprepningVeckoFrekvens(value)}
+                        >
+                          <Picker.Item label="Varje" value="Varje" />
+                          <Picker.Item label="Varannan" value="Varannan" />
+                          <Picker.Item label="Var 3e" value="Var 3e" />
+                          <Picker.Item label="Var 4e" value="Var 4e" />
+                          <Picker.Item label="Var 5e" value="Var 5e" />
+                          <Picker.Item label="Var 6e" value="Var 6e" />
+                        </Picker>
+                      </View>
+
+                      <View style={styles.doublePickerColumn}>
+                        <Picker
+                          style={styles.picker}
+                          itemStyle={styles.pickerItem}
+                          selectedValue={upprepningVeckodag}
+                          onValueChange={(value) => setUpprepningVeckodag(value)}
+                        >
+                          <Picker.Item label="Måndag" value="Måndag" />
+                          <Picker.Item label="Tisdag" value="Tisdag" />
+                          <Picker.Item label="Onsdag" value="Onsdag" />
+                          <Picker.Item label="Torsdag" value="Torsdag" />
+                          <Picker.Item label="Fredag" value="Fredag" />
+                          <Picker.Item label="Lördag" value="Lördag" />
+                          <Picker.Item label="Söndag" value="Söndag" />
+                        </Picker>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {upprepningTyp === 'manadsvis' && (
+                  <View style={styles.detailInfoBox}>
+                    <View style={styles.dynamicSectionBox}>
+                      <View style={styles.dynamicRow}>
+                        <Text style={styles.detailInfoLabel}>Dynamisk</Text>
+
+                        <Pressable
+                          style={[
+                            styles.switchTrack,
+                            upprepningManadsDynamisk && styles.switchTrackActive,
+                          ]}
+                          onPress={() =>
+                            setUpprepningManadsDynamisk((nuvarande) => !nuvarande)
+                          }
+                        >
+                          <View
+                            style={[
+                              styles.switchThumb,
+                              upprepningManadsDynamisk && styles.switchThumbActive,
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.switchLabelLeft,
+                              upprepningManadsDynamisk && styles.switchLabelHidden,
+                            ]}
+                          >
+                            Nej
+                          </Text>
+                          <Text
+                            style={[
+                              styles.switchLabelRight,
+                              !upprepningManadsDynamisk && styles.switchLabelHidden,
+                            ]}
+                          >
+                            Ja
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    {upprepningManadsDynamisk ? (
+                      <>
+                        <View style={styles.positionButtonRow}>
+                          <Pressable
+                            style={[
+                              styles.positionButton,
+                              upprepningManadsPosition === 'Första' && styles.positionButtonActive,
+                            ]}
+                            onPress={() => setUpprepningManadsPosition('Första')}
+                          >
+                            <Text
+                              style={[
+                                styles.positionButtonText,
+                                upprepningManadsPosition === 'Första' && styles.positionButtonTextActive,
+                              ]}
+                            >
+                              Första
+                            </Text>
+                          </Pressable>
+
+                          <Pressable
+                            style={[
+                              styles.positionButton,
+                              upprepningManadsPosition === 'Sista' && styles.positionButtonActive,
+                            ]}
+                            onPress={() => setUpprepningManadsPosition('Sista')}
+                          >
+                            <Text
+                              style={[
+                                styles.positionButtonText,
+                                upprepningManadsPosition === 'Sista' && styles.positionButtonTextActive,
+                              ]}
+                            >
+                              Sista
+                            </Text>
+                          </Pressable>
+                        </View>
+
+                        <View style={styles.pickerLabelRow}>
+                          <Text style={styles.halfPickerLabel}>Veckodag</Text>
+                          <Text style={styles.halfPickerLabel}>Hur ofta</Text>
+                        </View>
+
+                        <View style={styles.doublePickerBox}>
+                          <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
+                            <Picker
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              selectedValue={upprepningManadsDynamiskVeckodag}
+                              onValueChange={(value) => setUpprepningManadsDynamiskVeckodag(value)}
+                            >
+                              <Picker.Item label="Måndag" value="Måndag" />
+                              <Picker.Item label="Tisdag" value="Tisdag" />
+                              <Picker.Item label="Onsdag" value="Onsdag" />
+                              <Picker.Item label="Torsdag" value="Torsdag" />
+                              <Picker.Item label="Fredag" value="Fredag" />
+                              <Picker.Item label="Lördag" value="Lördag" />
+                              <Picker.Item label="Söndag" value="Söndag" />
+                            </Picker>
+                          </View>
+
+                          <View style={styles.doublePickerColumn}>
+                            <Picker
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              selectedValue={upprepningManadsDynamiskFrekvens}
+                              onValueChange={(value) => setUpprepningManadsDynamiskFrekvens(value)}
+                            >
+                              <Picker.Item label="Varje" value="Varje" />
+                              <Picker.Item label="Varannan" value="Varannan" />
+                              <Picker.Item label="Var 3e" value="Var 3e" />
+                              <Picker.Item label="Var 4e" value="Var 4e" />
+                              <Picker.Item label="Var 5e" value="Var 5e" />
+                              <Picker.Item label="Var 6e" value="Var 6e" />
+                            </Picker>
+                          </View>
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.pickerLabelRow}>
+                          <Text style={styles.halfPickerLabel}>Hur ofta</Text>
+                          <Text style={styles.halfPickerLabel}>Dag i månaden</Text>
+                        </View>
+
+                        <View style={styles.doublePickerBox}>
+                          <View style={[styles.doublePickerColumn, styles.doublePickerDivider]}>
+                            <Picker
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              selectedValue={upprepningManadsFrekvens}
+                              onValueChange={(value) => setUpprepningManadsFrekvens(value)}
+                            >
+                              <Picker.Item label="Varje" value="Varje" />
+                              <Picker.Item label="Varannan" value="Varannan" />
+                              <Picker.Item label="Var 3e" value="Var 3e" />
+                              <Picker.Item label="Var 4e" value="Var 4e" />
+                              <Picker.Item label="Var 5e" value="Var 5e" />
+                              <Picker.Item label="Var 6e" value="Var 6e" />
+                            </Picker>
+                          </View>
+
+                          <View style={styles.doublePickerColumn}>
+                            <Picker
+                              style={styles.picker}
+                              itemStyle={styles.pickerItem}
+                              selectedValue={upprepningManadsDag}
+                              onValueChange={(value) => setUpprepningManadsDag(value)}
+                            >
+                              <Picker.Item label="1" value="1" />
+                              <Picker.Item label="2" value="2" />
+                              <Picker.Item label="3" value="3" />
+                              <Picker.Item label="4" value="4" />
+                              <Picker.Item label="5" value="5" />
+                              <Picker.Item label="6" value="6" />
+                              <Picker.Item label="7" value="7" />
+                              <Picker.Item label="8" value="8" />
+                              <Picker.Item label="9" value="9" />
+                              <Picker.Item label="10" value="10" />
+                              <Picker.Item label="11" value="11" />
+                              <Picker.Item label="12" value="12" />
+                              <Picker.Item label="13" value="13" />
+                              <Picker.Item label="14" value="14" />
+                              <Picker.Item label="15" value="15" />
+                              <Picker.Item label="16" value="16" />
+                              <Picker.Item label="17" value="17" />
+                              <Picker.Item label="18" value="18" />
+                              <Picker.Item label="19" value="19" />
+                              <Picker.Item label="20" value="20" />
+                              <Picker.Item label="21" value="21" />
+                              <Picker.Item label="22" value="22" />
+                              <Picker.Item label="23" value="23" />
+                              <Picker.Item label="24" value="24" />
+                              <Picker.Item label="25" value="25" />
+                              <Picker.Item label="26" value="26" />
+                              <Picker.Item label="27" value="27" />
+                              <Picker.Item label="28" value="28" />
+                              <Picker.Item label="29" value="29" />
+                              <Picker.Item label="30" value="30" />
+                              <Picker.Item label="31" value="31" />
+                            </Picker>
+                          </View>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                )}
+
+                {upprepningTyp !== 'ingen' && (
+                  <Pressable
+                    style={[styles.fullWidthConfirmButton, styles.recurrenceConfirmSpacing]}
+                    onPress={sparaUpprepningsRegel}
+                  >
+                    <Text style={styles.fullWidthConfirmButtonText}>Klar</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        <TaskDetailModal
+          uppgift={valdUppgift}
+          visible={valdUppgift !== null}
+          onClose={stangUppgift}
+          onComplete={hanteraKlarFranDetalj}
+          onEdit={oppnaRedigeraModal}
+          onDelete={hanteraTaBortFranDetalj}
+          formatDetaljDatum={formatDetaljDatum}
+          formatUpprepningTextFranRegel={formatUpprepningTextFranRegel}
+        />
+
+      </View>
+    </TouchableWithoutFeedback>
+   </GestureHandlerRootView>
   );
 }
 
@@ -1745,6 +1710,8 @@ const styles = StyleSheet.create({
   },
   taskRightColumn: {
     alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    minHeight: 42,
   },
   taskTimeText: {
     marginTop: 4,
@@ -2152,6 +2119,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  swipeCompleteBackground: {
+    flex: 1,
+    backgroundColor: '#d4edda',
+    borderRadius: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  swipeCompleteText: {
+    color: '#155724',
+    fontWeight: '700',
+    fontSize: 16,
   },
 
   /* Space between details */
