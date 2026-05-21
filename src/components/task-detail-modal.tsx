@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-    Keyboard,
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableWithoutFeedback,
-    View,
+  Keyboard,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 
 type UpprepningsRegel = {
@@ -29,6 +29,7 @@ type Uppgift = {
   datum: string;
   klartDatum?: string;
   kommentar?: string;
+  arViktig?: boolean;
   harStartTid?: boolean;
   startTid?: string;
   upprepningar?: UpprepningsRegel[];
@@ -75,9 +76,15 @@ export function TaskDetailModal({
                   </Pressable>
                 </View>
 
-                <Text style={styles.detailTopDate}>
-                  {formatDetaljDatum(uppgift).replace(/[()]/g, '')}
-                </Text>
+                <View style={styles.detailTopMetaRow}>
+                  <Text style={styles.detailTopDate}>
+                    {formatDetaljDatum(uppgift).replace(/[()]/g, '')}
+                  </Text>
+
+                  {uppgift.arViktig && (
+                    <Text style={styles.detailImportantText}>Viktig</Text>
+                  )}
+                </View>
 
                 {uppgift.harStartTid && uppgift.startTid && (
                   <Text style={styles.detailTopTime}>{uppgift.startTid}</Text>
@@ -176,7 +183,6 @@ const styles = StyleSheet.create({
   },
 
   detailTopDate: {
-    marginTop: 4,
     fontSize: 16,
     fontWeight: '700',
     color: '#444',
@@ -265,5 +271,18 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  
+  detailTopMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+
+  detailImportantText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#f4a261',
   },
 });

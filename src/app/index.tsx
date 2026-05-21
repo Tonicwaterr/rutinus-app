@@ -43,6 +43,7 @@ type Uppgift = {
   datum: string; // YYYY-MM-DD
   klartDatum?: string;
   kommentar?: string;
+  arViktig?: boolean;
 
   startTid?: string;
   harStartTid?: boolean;
@@ -51,13 +52,14 @@ type Uppgift = {
   
 };
 
-type Flik = 'Aktiva' | 'Kommande' | 'Avslutade';
+type Flik = 'Idag' | 'Framtida';
 
 type UppgiftsSektionProps = {
   uppgifter: Uppgift[];
   onTryckUppgift?: (id: string) => void;
-  kanSwipeKlar?: boolean;
-  onSwipeKlar?: (uppgift: Uppgift) => void;
+  kanSwipeFlytta?: boolean;
+  onSwipeFlytta?: (uppgift: Uppgift) => void;
+  swipeResetCounter?: number;
 };
 
 const STORAGE_KEY = 'uppgifter';
@@ -215,7 +217,7 @@ function formatDetaljDatum(uppgift: Uppgift) {
     return formatAvslutadText(uppgift.klartDatum);
   }
 
-  if (arAktiv(uppgift.datum)) {
+  if (arIdag(uppgift.datum)) {
     return formatAktivText(uppgift.datum);
   }
 
@@ -484,39 +486,35 @@ function taBortGamlaAvslutadeUppgifter(uppgifter: Uppgift[]) {
   });
 }
 
-function arAktiv(datum: string) {
+function taBortGamlaAktivaUppgifter(uppgifter: Uppgift[]) {
   const idag = new Date();
   idag.setHours(0, 0, 0, 0);
 
-  const uppgiftsDatum = strangTillDatum(datum);
+  return uppgifter.filter((uppgift) => {
+    if (uppgift.status !== 'aktiv') {
+      return true;
+    }
+
+    const uppgiftsDatum = strangTillDatum(uppgift.datum);
+    uppgiftsDatum.setHours(0, 0, 0, 0);
+
+    return uppgiftsDatum.getTime() >= idag.getTime();
+  });
+}
+
+function arIdag(datumStrang: string) {
+  const idag = new Date();
+  idag.setHours(0, 0, 0, 0);
+
+  const uppgiftsDatum = strangTillDatum(datumStrang);
   uppgiftsDatum.setHours(0, 0, 0, 0);
 
-  const skillnadMs = uppgiftsDatum.getTime() - idag.getTime();
-  const skillnadDagar = Math.round(skillnadMs / (1000 * 60 * 60 * 24));
-
-  return skillnadDagar <= 3;
+  return uppgiftsDatum.getTime() === idag.getTime();
 }
 
 function hamtaTaskCardStyle(uppgift: Uppgift) {
-  if (uppgift.status === 'avslutad') {
-    return styles.taskCard;
-  }
-
-  const idag = new Date();
-  idag.setHours(0, 0, 0, 0);
-
-  const uppgiftsDatum = strangTillDatum(uppgift.datum);
-  uppgiftsDatum.setHours(0, 0, 0, 0);
-
-  const skillnadMs = uppgiftsDatum.getTime() - idag.getTime();
-  const skillnadDagar = Math.round(skillnadMs / (1000 * 60 * 60 * 24));
-
-  if (skillnadDagar < 0) {
-    return [styles.taskCard, styles.taskCardLate];
-  }
-
-  if (skillnadDagar === 0) {
-    return [styles.taskCard, styles.taskCardToday];
+  if (uppgift.arViktig) {
+    return [styles.taskCard, styles.importantTaskCard];
   }
 
   return styles.taskCard;
@@ -554,10 +552,10 @@ function skapaStartUppgifter(): Uppgift[] {
   ];
 }
 
-function SwipeKlarBakgrund() {
+function SwipeFlyttaBakgrund() {
   return (
     <View style={styles.swipeCompleteBackground}>
-      <Text style={styles.swipeCompleteText}>Klar</Text>
+      <Text style={styles.swipeCompleteText}>Imorgon</Text>
     </View>
   );
 }
@@ -565,8 +563,9 @@ function SwipeKlarBakgrund() {
 function UppgiftsSektion({
   uppgifter,
   onTryckUppgift,
-  kanSwipeKlar = false,
-  onSwipeKlar,
+  kanSwipeFlytta = false,
+  onSwipeFlytta,
+  swipeResetCounter = 0,
 }: UppgiftsSektionProps) {
   return (
     <View style={styles.taskList}>
@@ -578,7 +577,7 @@ function UppgiftsSektion({
 
           if (uppgift.status === 'avslutad') {
             visningstext = formatAvslutadText(uppgift.klartDatum);
-          } else if (arAktiv(uppgift.datum)) {
+          } else if (arIdag(uppgift.datum)) {
             visningstext = formatAktivText(uppgift.datum);
           } else {
             visningstext = formatKommandeText(uppgift.datum);
@@ -605,26 +604,18 @@ function UppgiftsSektion({
                     <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
                   )}
                 </View>
-              </View>
-
-              {uppgift.upprepningar && uppgift.upprepningar.length > 0 && (
-                <Text style={styles.taskRecurrenceText}>
-                  {uppgift.upprepningar
-                    .map((regel) => formatUpprepningKortTextFranRegel(regel))
-                    .join(' • ')}
-                </Text>
-              )}
+              </View>            
             </Pressable>
           );
 
-          return kanSwipeKlar && uppgift.status === 'aktiv' ? (
+          return kanSwipeFlytta && uppgift.status === 'aktiv' ? (
             <Swipeable
-              key={uppgift.id}
-              renderLeftActions={SwipeKlarBakgrund}
+              key={`${uppgift.id}-${swipeResetCounter}`}
+              renderLeftActions={SwipeFlyttaBakgrund}
               leftThreshold={120}
               overshootLeft={false}
               onSwipeableOpen={() => {
-                onSwipeKlar?.(uppgift);
+                onSwipeFlytta?.(uppgift);
               }}
             >
               {taskKort}
@@ -660,7 +651,7 @@ function FlikKnapp({ titel, aktivFlik, onPress }: FlikKnappProps) {
 }
 
 export default function HomeScreen() {
-  const [aktivFlik, setAktivFlik] = useState<Flik>('Aktiva');
+  const [aktivFlik, setAktivFlik] = useState<Flik>('Idag');
   const [visaLaggTillModal, setVisaLaggTillModal] = useState(false);
   const [visaDatumValkare, setVisaDatumValkare] = useState(false);
   const [valdUppgift, setValdUppgift] = useState<Uppgift | null>(null);
@@ -668,6 +659,11 @@ export default function HomeScreen() {
   const [nyKommentar, setNyKommentar] = useState('');
   const [valtDatum, setValtDatum] = useState<Date>(new Date());
   const [uppgiftSomRedigeras, setUppgiftSomRedigeras] = useState<Uppgift | null>(null);
+  const [arViktig, setArViktig] = useState(false);
+  
+  const [visaViktigBekraftelse, setVisaViktigBekraftelse] = useState(false);
+  const [uppgiftAttFlytta, setUppgiftAttFlytta] = useState<Uppgift | null>(null);
+  const [swipeResetCounter, setSwipeResetCounter] = useState(0);
 
   const [harStartTid, setHarStartTid] = useState(false);
   const [startTimme, setStartTimme] = useState('08');
@@ -697,9 +693,17 @@ export default function HomeScreen() {
 
         if (sparadeUppgifter) {
           const laddadeUppgifter: Uppgift[] = JSON.parse(sparadeUppgifter);
-          setUppgifter(taBortGamlaAvslutadeUppgifter(laddadeUppgifter));
+          const rensadeUppgifter = taBortGamlaAktivaUppgifter(
+            taBortGamlaAvslutadeUppgifter(laddadeUppgifter)
+          );
+          setUppgifter(rensadeUppgifter);
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rensadeUppgifter));
         } else {
-          setUppgifter(taBortGamlaAvslutadeUppgifter(skapaStartUppgifter()));
+          const startUppgifter = taBortGamlaAktivaUppgifter(
+            taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
+          );
+          setUppgifter(startUppgifter);
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(startUppgifter));
         }
       } catch (error) {
         console.log('Kunde inte ladda uppgifter:', error);
@@ -745,6 +749,7 @@ export default function HomeScreen() {
     setNyKommentar('');
     setValtDatum(new Date());
     setVisaDatumValkare(false);
+    setArViktig(false);
 
     setHarStartTid(false);
     setStartTimme('08');
@@ -775,6 +780,7 @@ export default function HomeScreen() {
     setVisaDatumValkare(false);
     setUppgiftSomRedigeras(null);
     setVisaStartTidValkare(false);
+    setArViktig(false);
   }
 
   function oppnaRedigeraModal() {
@@ -787,6 +793,7 @@ export default function HomeScreen() {
     setNyTitel(valdUppgift.titel);
     setNyKommentar(valdUppgift.kommentar ?? '');
     setValtDatum(strangTillDatum(valdUppgift.datum));
+    setArViktig(valdUppgift.arViktig ?? false);
 
     setVisaStartTidValkare(false);
     setHarStartTid(valdUppgift.harStartTid ?? false);
@@ -914,6 +921,7 @@ export default function HomeScreen() {
       status: uppgiftSomRedigeras ? uppgiftSomRedigeras.status : 'aktiv',
       datum: datumStrang,
       kommentar: nyKommentar.trim() || undefined,
+      arViktig,
       harStartTid,
       startTid: harStartTid ? `${startTimme}:${startMinut}` : undefined,
       upprepningar: upprepningarLista,
@@ -931,7 +939,7 @@ export default function HomeScreen() {
     }
 
     setUppgiftSomRedigeras(null);
-    setAktivFlik(arAktiv(datumStrang) ? 'Aktiva' : 'Kommande');
+    setAktivFlik(arIdag(datumStrang) ? 'Idag' : 'Framtida');
     stangLaggTillModal();
   }
 
@@ -942,6 +950,64 @@ export default function HomeScreen() {
   
   function stangUppgift() {
     setValdUppgift(null);
+  }
+
+  function flyttaUppgiftTillImorgon(uppgift: Uppgift) {
+    if (uppgift.arViktig) {
+      setUppgiftAttFlytta(uppgift);
+      setVisaViktigBekraftelse(true);
+      return;
+    }
+
+    const nuvarandeDatum = strangTillDatum(uppgift.datum);
+    const imorgon = new Date(nuvarandeDatum);
+    imorgon.setDate(imorgon.getDate() + 1);
+
+    const nyttDatum = datumTillStrang(imorgon);
+
+    setUppgifter((nuvarandeUppgifter) =>
+      nuvarandeUppgifter.map((nuvarandeUppgift) =>
+        nuvarandeUppgift.id === uppgift.id
+          ? {
+              ...nuvarandeUppgift,
+              datum: nyttDatum,
+            }
+          : nuvarandeUppgift
+      )
+    );
+  }
+
+  function bekraftaFlyttaTillImorgon() {
+    if (!uppgiftAttFlytta) {
+      return;
+    }
+
+    const nuvarandeDatum = strangTillDatum(uppgiftAttFlytta.datum);
+    const imorgon = new Date(nuvarandeDatum);
+    imorgon.setDate(imorgon.getDate() + 1);
+
+    const nyttDatum = datumTillStrang(imorgon);
+
+    setUppgifter((nuvarandeUppgifter) =>
+      nuvarandeUppgifter.map((uppgift) =>
+        uppgift.id === uppgiftAttFlytta.id
+          ? {
+              ...uppgift,
+              datum: nyttDatum,
+            }
+          : uppgift
+      )
+    );
+
+    setUppgiftAttFlytta(null);
+    setVisaViktigBekraftelse(false);
+    setSwipeResetCounter((nuvarande) => nuvarande + 1);
+  }
+
+  function avbrytFlyttaTillImorgon() {
+    setUppgiftAttFlytta(null);
+    setVisaViktigBekraftelse(false);
+    setSwipeResetCounter((nuvarande) => nuvarande + 1);
   }
 
   function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
@@ -1002,43 +1068,46 @@ export default function HomeScreen() {
   }
 
 
-  const aktivaUppgifter = uppgifter
-    .filter((uppgift) => uppgift.status === 'aktiv' && arAktiv(uppgift.datum))
+  const idagUppgifter = uppgifter
+    .filter((uppgift) => uppgift.status === 'aktiv' && arIdag(uppgift.datum))
     .sort((a, b) => strangTillDatum(a.datum).getTime() - strangTillDatum(b.datum).getTime()
   );
 
-  const kommandeUppgifter = uppgifter
-    .filter((uppgift) => uppgift.status === 'aktiv' && !arAktiv(uppgift.datum))
+  const framtidaUppgifter = uppgifter
+    .filter((uppgift) => {
+      if (uppgift.status !== 'aktiv') {
+        return false;
+      }
+
+      const idag = new Date();
+      idag.setHours(0, 0, 0, 0);
+
+      const uppgiftsDatum = strangTillDatum(uppgift.datum);
+      uppgiftsDatum.setHours(0, 0, 0, 0);
+
+      return uppgiftsDatum.getTime() > idag.getTime();
+    })
     .sort((a, b) => strangTillDatum(a.datum).getTime() - strangTillDatum(b.datum).getTime()
   );
 
-  const avslutadeUppgifter = uppgifter.filter(
-    (uppgift) => uppgift.status === 'avslutad'
-  );
 
   let innehall = null;
 
-  if (aktivFlik === 'Aktiva') {
+  if (aktivFlik === 'Idag') {
     innehall = (
       <UppgiftsSektion
-        uppgifter={aktivaUppgifter}
+        uppgifter={idagUppgifter}
         onTryckUppgift={oppnaUppgift}
-        kanSwipeKlar={true}
-        onSwipeKlar={markeraUppgiftSomKlar}
-      />
-    );
-  } else if (aktivFlik === 'Kommande') {
-    innehall = (
-      <UppgiftsSektion
-        uppgifter={kommandeUppgifter}
-        onTryckUppgift={oppnaUppgift}
+        kanSwipeFlytta={true}
+        onSwipeFlytta={flyttaUppgiftTillImorgon}
+        swipeResetCounter={swipeResetCounter}
       />
     );
   } else {
     innehall = (
-      <UppgiftsSektion 
-        uppgifter={avslutadeUppgifter}
-        onTryckUppgift={oppnaUppgift} 
+      <UppgiftsSektion
+        uppgifter={framtidaUppgifter}
+        onTryckUppgift={oppnaUppgift}
       />
     );
   }
@@ -1052,9 +1121,8 @@ export default function HomeScreen() {
         </Pressable>
 
         <View style={styles.tabRow}>
-          <FlikKnapp titel="Aktiva" aktivFlik={aktivFlik} onPress={setAktivFlik} />
-          <FlikKnapp titel="Kommande" aktivFlik={aktivFlik} onPress={setAktivFlik} />
-          <FlikKnapp titel="Avslutade" aktivFlik={aktivFlik} onPress={setAktivFlik} />
+          <FlikKnapp titel="Idag" aktivFlik={aktivFlik} onPress={setAktivFlik} />
+          <FlikKnapp titel="Framtida" aktivFlik={aktivFlik} onPress={setAktivFlik} />
         </View>
 
         <ScrollView
@@ -1091,6 +1159,8 @@ export default function HomeScreen() {
                 onChangeText={setNyTitel}
                 autoFocus
               />
+
+              
 
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -1254,7 +1324,42 @@ export default function HomeScreen() {
                   onPress={oppnaUpprepningModal}
                 >
                   <Text style={styles.secondaryButtonText}>Lägg till upprepning</Text>
-                </Pressable> 
+                </Pressable>
+
+              <View style={[styles.importantRow, styles.importantSectionSpacing]}>
+                <Text style={styles.fieldLabel}>Markera som viktig</Text>
+
+                <Pressable
+                  style={[
+                    styles.switchTrack,
+                    arViktig && styles.switchTrackActive,
+                  ]}
+                  onPress={() => setArViktig((nuvarande) => !nuvarande)}
+                >
+                  <View
+                    style={[
+                      styles.switchThumb,
+                      arViktig && styles.switchThumbActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.switchLabelLeft,
+                      arViktig && styles.switchLabelHidden,
+                    ]}
+                  >
+                    Nej
+                  </Text>
+                  <Text
+                    style={[
+                      styles.switchLabelRight,
+                      !arViktig && styles.switchLabelHidden,
+                    ]}
+                  >
+                    Ja
+                  </Text>
+                </Pressable>
+              </View> 
 
               <View style={styles.modalButtonRow}>
                 <Pressable style={styles.cancelButton} 
@@ -1617,6 +1722,31 @@ export default function HomeScreen() {
           formatUpprepningTextFranRegel={formatUpprepningTextFranRegel}
         />
 
+        <Modal
+          visible={visaViktigBekraftelse}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={avbrytFlyttaTillImorgon}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.confirmationCard}>
+              <Text style={styles.confirmationText}>
+                Uppgiften är markerad som viktig. Är du säker på att du vill flytta fram den?
+              </Text>
+
+              <View style={styles.confirmationButtonRow}>
+                <Pressable style={styles.cancelButton} onPress={avbrytFlyttaTillImorgon}>
+                  <Text style={styles.cancelButtonText}>Nej</Text>
+                </Pressable>
+
+                <Pressable style={styles.confirmButton} onPress={bekraftaFlyttaTillImorgon}>
+                  <Text style={styles.confirmButtonText}>Ja</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
       </View>
     </TouchableWithoutFeedback>
    </GestureHandlerRootView>
@@ -1679,12 +1809,6 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
   },
-  taskCardToday: {
-    backgroundColor: '#fff4cc',
-  },
-  taskCardLate: {
-    backgroundColor: '#f8d7da',
-  },
   taskTitle: {
     flex: 1,
     fontSize: 15,
@@ -1724,6 +1848,10 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 20,
+  },
+  importantTaskCard: {
+    borderWidth: 2,
+    borderColor: '#fab14a',
   },
   modalOverlay: {
     flex: 1,
@@ -2005,6 +2133,12 @@ const styles = StyleSheet.create({
   switchLabelHidden: {
     opacity: 0.35,
   },
+  importantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   positionButtonRow: {
     flexDirection: 'row',
     gap: 8,
@@ -2133,6 +2267,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  confirmationCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 18,
+    gap: 16,
+  },
+  confirmationText: {
+    fontSize: 16,
+    color: '#222',
+    lineHeight: 22,
+  },
+  confirmationButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
 
   /* Space between details */
   commentSectionSpacing: {
@@ -2152,5 +2301,8 @@ const styles = StyleSheet.create({
   },
   recurrenceConfirmSpacing: {
     marginTop: 14,
+  },
+  importantSectionSpacing: {
+    marginTop: 8,
   },
 });
