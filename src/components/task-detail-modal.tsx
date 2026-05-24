@@ -1,11 +1,9 @@
 import React from 'react';
 import {
-  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
   Text,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 
@@ -41,7 +39,8 @@ type TaskDetailModalProps = {
   onClose: () => void;
   onComplete: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onSkip: () => void;
+  onMoveToTomorrow: () => void;
   formatDetaljDatum: (uppgift: Uppgift) => string;
   formatUpprepningTextFranRegel: (regel: UpprepningsRegel) => string;
 };
@@ -52,7 +51,8 @@ export function TaskDetailModal({
   onClose,
   onComplete,
   onEdit,
-  onDelete,
+  onSkip,
+  onMoveToTomorrow,
   formatDetaljDatum,
   formatUpprepningTextFranRegel,
 }: TaskDetailModalProps) {
@@ -63,7 +63,7 @@ export function TaskDetailModal({
       transparent={true}
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             {uppgift && (
@@ -71,9 +71,15 @@ export function TaskDetailModal({
                 <View style={styles.detailHeaderRow}>
                   <Text style={styles.modalTitle}>{uppgift.titel}</Text>
 
-                  <Pressable style={styles.closeButton} onPress={onClose}>
-                    <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
-                  </Pressable>
+                  <View style={styles.headerActionRow}>
+                    <Pressable style={styles.iconButton} onPress={onEdit}>
+                      <Text style={styles.iconButtonText}>✎</Text>
+                    </Pressable>
+
+                    <Pressable style={styles.closeButton} onPress={onClose}>
+                      <Text style={styles.closeButtonText}>{'\u00D7'}</Text>
+                    </Pressable>
+                  </View>
                 </View>
 
                 <View style={styles.detailTopMetaRow}>
@@ -113,26 +119,26 @@ export function TaskDetailModal({
 
                 <View style={[styles.modalButtonColumn, styles.detailButtonSpacing]}>
                   {uppgift.status !== 'avslutad' && (
-                    <Pressable style={styles.completeButton} onPress={onComplete}>
-                      <Text style={styles.completeButtonText}>Klar</Text>
-                    </Pressable>
+                    <>
+                      <Pressable style={styles.completeButton} onPress={onComplete}>
+                        <Text style={styles.completeButtonText}>Klar</Text>
+                      </Pressable>
+
+                      <Pressable style={styles.secondaryActionButton} onPress={onSkip}>
+                        <Text style={styles.secondaryActionButtonText}>Hoppa över</Text>
+                      </Pressable>
+
+                      <Pressable style={styles.secondaryActionButton} onPress={onMoveToTomorrow}>
+                        <Text style={styles.secondaryActionButtonText}>Flytta till imorgon</Text>
+                      </Pressable>
+                    </>
                   )}
-
-                  <View style={styles.detailActionRow}>
-                    <Pressable style={styles.editButton} onPress={onEdit}>
-                      <Text style={styles.editButtonText}>Redigera</Text>
-                    </Pressable>
-
-                    <Pressable style={styles.deleteButton} onPress={onDelete}>
-                      <Text style={styles.deleteButtonText}>Ta bort</Text>
-                    </Pressable>
-                  </View>
                 </View>
               </>
             )}
           </View>
         </View>
-      </TouchableWithoutFeedback>
+      
     </Modal>
   );
 }
@@ -164,6 +170,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginRight: 12,
     color: '#111',
+  },
+
+  headerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  iconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e9ecef',
+  },
+
+  iconButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#222',
+  },
+
+  secondaryActionButton: {
+    backgroundColor: '#e9ecef',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+
+  secondaryActionButtonText: {
+    color: '#222',
+    fontWeight: '600',
+    fontSize: 16,
   },
 
   closeButton: {
@@ -240,37 +280,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
-  },
-
-  detailActionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  editButton: {
-    flex: 1,
-    backgroundColor: '#e9ecef',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  editButtonText: {
-    color: '#222',
-    fontWeight: '600',
-  },
-
-  deleteButton: {
-    flex: 1,
-    backgroundColor: '#dc3545',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  deleteButtonText: {
-    color: '#fff',
-    fontWeight: '600',
   },
   
   detailTopMetaRow: {

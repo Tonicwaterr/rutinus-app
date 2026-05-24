@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Keyboard,
   Modal,
@@ -63,6 +64,7 @@ type UppgiftsSektionProps = {
 };
 
 const STORAGE_KEY = 'uppgifter';
+const EDIT_REQUEST_KEY = 'rutinus-edit-request';
 
 function datumTillStrang(datum: Date) {
   const ar = datum.getFullYear();
@@ -222,6 +224,70 @@ function formatDetaljDatum(uppgift: Uppgift) {
   }
 
   return formatKommandeText(uppgift.datum);
+}
+
+function formatSektionsDatum(datumStrang: string) {
+  const datum = strangTillDatum(datumStrang);
+
+  const veckodagar = [
+    'Söndag',
+    'Måndag',
+    'Tisdag',
+    'Onsdag',
+    'Torsdag',
+    'Fredag',
+    'Lördag',
+  ];
+
+  const manader = [
+    'januari',
+    'februari',
+    'mars',
+    'april',
+    'maj',
+    'juni',
+    'juli',
+    'augusti',
+    'september',
+    'oktober',
+    'november',
+    'december',
+  ];
+
+  return `${veckodagar[datum.getDay()]} ${datum.getDate()} ${manader[datum.getMonth()]}`;
+}
+
+function grupperaUppgifterEfterDatum(uppgifter: Uppgift[]) {
+  const grupper = new Map<string, Uppgift[]>();
+
+  for (const uppgift of uppgifter) {
+    if (!grupper.has(uppgift.datum)) {
+      grupper.set(uppgift.datum, []);
+    }
+
+    grupper.get(uppgift.datum)?.push(uppgift);
+  }
+
+  return Array.from(grupper.entries())
+    .sort(
+      ([datumA], [datumB]) =>
+        strangTillDatum(datumA).getTime() - strangTillDatum(datumB).getTime()
+    )
+    .map(([datum, uppgifterForDatum]) => ({
+      datum,
+      uppgifter: uppgifterForDatum.sort((a, b) => {
+        if (a.harStartTid && a.startTid && b.harStartTid && b.startTid) {
+          return a.startTid.localeCompare(b.startTid);
+        }
+        if (a.harStartTid && a.startTid) {
+          return -1;
+        }
+        if (b.harStartTid && b.startTid) {
+          return 1;
+        }
+        return a.titel.localeCompare(b.titel);
+      }),
+    }));
 }
 
 function formatVeckoFrekvensText(frekvens?: string) {
@@ -567,63 +633,59 @@ function UppgiftsSektion({
   onSwipeFlytta,
   swipeResetCounter = 0,
 }: UppgiftsSektionProps) {
+  const grupperadeUppgifter = grupperaUppgifterEfterDatum(uppgifter);
+
   return (
     <View style={styles.taskList}>
       {uppgifter.length === 0 ? (
         <Text style={styles.emptyText}>Inga uppgifter</Text>
       ) : (
-        uppgifter.map((uppgift) => {
-          let visningstext = '';
+        grupperadeUppgifter.map((grupp) => (
+          <View key={grupp.datum} style={styles.taskDateGroup}>
+            <Text style={styles.taskDateHeader}>
+              {formatSektionsDatum(grupp.datum)}
+            </Text>
 
-          if (uppgift.status === 'avslutad') {
-            visningstext = formatAvslutadText(uppgift.klartDatum);
-          } else if (arIdag(uppgift.datum)) {
-            visningstext = formatAktivText(uppgift.datum);
-          } else {
-            visningstext = formatKommandeText(uppgift.datum);
-          }
+            {grupp.uppgifter.map((uppgift) => {
+              const taskKort = (
+                <Pressable
+                  onPress={() => onTryckUppgift?.(uppgift.id)}
+                  style={hamtaTaskCardStyle(uppgift)}
+                >
+                  <View style={styles.taskHeaderRow}>
+                    <Text style={styles.taskTitle}>
+                      {uppgift.status === 'avslutad' ? '✔ ' : ''}
+                      {uppgift.titel}
+                      {uppgift.kommentar ? ' [K]' : ''}
+                    </Text>
 
-          const taskKort = (
-            <Pressable
-              onPress={() => onTryckUppgift?.(uppgift.id)}
-              style={hamtaTaskCardStyle(uppgift)}
-            >
-              <View style={styles.taskHeaderRow}>
-                <Text style={styles.taskTitle}>
-                  {uppgift.status === 'avslutad' ? '✔ ' : ''}
-                  {uppgift.titel}
-                  {uppgift.kommentar ? ' [K]' : ''}
-                </Text>
+                    <View style={styles.taskRightColumn}>
+                      {uppgift.harStartTid && uppgift.startTid && (
+                        <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+              );
 
-                <View style={styles.taskRightColumn}>
-                  <Text style={styles.taskDueText}>
-                    {visningstext.replace(/[()]/g, '')}
-                  </Text>
-
-                  {uppgift.harStartTid && uppgift.startTid && (
-                    <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
-                  )}
-                </View>
-              </View>            
-            </Pressable>
-          );
-
-          return kanSwipeFlytta && uppgift.status === 'aktiv' ? (
-            <Swipeable
-              key={`${uppgift.id}-${swipeResetCounter}`}
-              renderLeftActions={SwipeFlyttaBakgrund}
-              leftThreshold={120}
-              overshootLeft={false}
-              onSwipeableOpen={() => {
-                onSwipeFlytta?.(uppgift);
-              }}
-            >
-              {taskKort}
-            </Swipeable>
-          ) : (
-            <View key={uppgift.id}>{taskKort}</View>
-          );
-        })
+              return kanSwipeFlytta && uppgift.status === 'aktiv' ? (
+                <Swipeable
+                  key={`${uppgift.id}-${swipeResetCounter}`}
+                  renderLeftActions={SwipeFlyttaBakgrund}
+                  leftThreshold={120}
+                  overshootLeft={false}
+                  onSwipeableOpen={() => {
+                    onSwipeFlytta?.(uppgift);
+                  }}
+                >
+                  {taskKort}
+                </Swipeable>
+              ) : (
+                <View key={uppgift.id}>{taskKort}</View>
+              );
+            })}
+          </View>
+        ))
       )}
     </View>
   );
@@ -686,62 +748,134 @@ export default function HomeScreen() {
   const [uppgifter, setUppgifter] = useState<Uppgift[]>([]);
   const [harLaddat, setHarLaddat] = useState(false);
 
-  useEffect(() => {
-    async function laddaUppgifter() {
-      try {
-        const sparadeUppgifter = await AsyncStorage.getItem(STORAGE_KEY);
+  const laddaUppgifter = useCallback(async () => {
+    try {
+      const sparadeUppgifter = await AsyncStorage.getItem(STORAGE_KEY);
 
-        if (sparadeUppgifter) {
-          const laddadeUppgifter: Uppgift[] = JSON.parse(sparadeUppgifter);
-          const rensadeUppgifter = taBortGamlaAktivaUppgifter(
-            taBortGamlaAvslutadeUppgifter(laddadeUppgifter)
-          );
-          setUppgifter(rensadeUppgifter);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rensadeUppgifter));
-        } else {
-          const startUppgifter = taBortGamlaAktivaUppgifter(
-            taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
-          );
-          setUppgifter(startUppgifter);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(startUppgifter));
-        }
-      } catch (error) {
-        console.log('Kunde inte ladda uppgifter:', error);
-        setUppgifter(skapaStartUppgifter());
-      } finally {
-        setHarLaddat(true);
+      let slutligLista: Uppgift[];
+
+      if (sparadeUppgifter) {
+        const laddadeUppgifter: Uppgift[] = JSON.parse(sparadeUppgifter);
+        slutligLista = taBortGamlaAktivaUppgifter(
+          taBortGamlaAvslutadeUppgifter(laddadeUppgifter)
+        );
+      } else {
+        slutligLista = taBortGamlaAktivaUppgifter(
+          taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
+        );
       }
-    }
 
-    laddaUppgifter();
+      setUppgifter(slutligLista);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(slutligLista));
+      return slutligLista;
+    } catch (error) {
+      console.log('Kunde inte ladda uppgifter:', error);
+      const fallback = taBortGamlaAktivaUppgifter(
+        taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
+      );
+      setUppgifter(fallback);
+      return fallback;
+    } finally {
+      setHarLaddat(true);
+    }
   }, []);
 
   useEffect(() => {
-    async function sparaUppgifter() {
-      try {
-        const rensadeUppgifter = taBortGamlaAvslutadeUppgifter(uppgifter);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rensadeUppgifter));
-      } catch (error) {
-        console.log('Kunde inte spara uppgifter:', error);
+    laddaUppgifter();
+  }, [laddaUppgifter]);
+
+
+  const hanteraExternRedigering = useCallback(async () => {
+    try {
+      const uppgiftId = await AsyncStorage.getItem(EDIT_REQUEST_KEY);
+
+      if (!uppgiftId) {
+        return;
       }
-    }
 
-    if (harLaddat) {
-      sparaUppgifter();
-    }
-  }, [uppgifter, harLaddat]);
+      const sparadeUppgifter = await AsyncStorage.getItem(STORAGE_KEY);
+      const laddadeUppgifter: Uppgift[] = sparadeUppgifter
+        ? JSON.parse(sparadeUppgifter)
+        : [];
 
-  useEffect(() => {
-    if (!harLaddat) {
-      return;
-    }
+      const rensadeUppgifter = taBortGamlaAktivaUppgifter(
+        taBortGamlaAvslutadeUppgifter(laddadeUppgifter)
+      );
 
-    const rensadeUppgifter = taBortGamlaAvslutadeUppgifter(uppgifter);
-
-    if (rensadeUppgifter.length !== uppgifter.length) {
       setUppgifter(rensadeUppgifter);
+
+      const hittadUppgift =
+        rensadeUppgifter.find((uppgift) => uppgift.id === uppgiftId) ?? null;
+
+      await AsyncStorage.removeItem(EDIT_REQUEST_KEY);
+
+      if (!hittadUppgift) {
+        return;
+      }
+
+      setAktivFlik(arIdag(hittadUppgift.datum) ? 'Idag' : 'Framtida');
+      oppnaRedigeraModalMedUppgift(hittadUppgift);
+    } catch (error) {
+      console.log('Kunde inte hantera extern redigering:', error);
     }
-  }, [uppgifter, harLaddat]);
+  }, []);
+
+  async function hamtaSenasteUppgifterFranStorage() {
+    try {
+      const sparadeUppgifter = await AsyncStorage.getItem(STORAGE_KEY);
+
+      if (!sparadeUppgifter) {
+        return taBortGamlaAktivaUppgifter(
+          taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
+        );
+      }
+
+      const laddadeUppgifter: Uppgift[] = JSON.parse(sparadeUppgifter);
+
+      return taBortGamlaAktivaUppgifter(
+        taBortGamlaAvslutadeUppgifter(laddadeUppgifter)
+      );
+    } catch (error) {
+      console.log('Kunde inte hämta senaste uppgifter:', error);
+      return taBortGamlaAktivaUppgifter(
+        taBortGamlaAvslutadeUppgifter(skapaStartUppgifter())
+      );
+    }
+  }
+
+  async function sparaOchSattUppgifter(nyaUppgifter: Uppgift[]) {
+    const rensadeUppgifter = taBortGamlaAktivaUppgifter(
+      taBortGamlaAvslutadeUppgifter(nyaUppgifter)
+    );
+
+    setUppgifter(rensadeUppgifter);
+
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rensadeUppgifter));
+    } catch (error) {
+      console.log('Kunde inte spara uppgifter:', error);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      let aktiv = true;
+
+      async function synkaHem() {
+        await laddaUppgifter();
+
+        if (aktiv) {
+          await hanteraExternRedigering();
+        }
+      }
+
+      synkaHem();
+
+      return () => {
+        aktiv = false;
+      };
+    }, [laddaUppgifter, hanteraExternRedigering])
+  );
 
   function oppnaLaggTillModal() {
     setUppgiftSomRedigeras(null);
@@ -783,23 +917,19 @@ export default function HomeScreen() {
     setArViktig(false);
   }
 
-  function oppnaRedigeraModal() {
-    if (!valdUppgift) {
-      return;
-    }
+  function oppnaRedigeraModalMedUppgift(uppgift: Uppgift) {
+    setUppgiftSomRedigeras(uppgift);
 
-    setUppgiftSomRedigeras(valdUppgift);
-
-    setNyTitel(valdUppgift.titel);
-    setNyKommentar(valdUppgift.kommentar ?? '');
-    setValtDatum(strangTillDatum(valdUppgift.datum));
-    setArViktig(valdUppgift.arViktig ?? false);
+    setNyTitel(uppgift.titel);
+    setNyKommentar(uppgift.kommentar ?? '');
+    setValtDatum(strangTillDatum(uppgift.datum));
+    setArViktig(uppgift.arViktig ?? false);
 
     setVisaStartTidValkare(false);
-    setHarStartTid(valdUppgift.harStartTid ?? false);
+    setHarStartTid(uppgift.harStartTid ?? false);
 
-    if (valdUppgift.harStartTid && valdUppgift.startTid) {
-      const delar = valdUppgift.startTid.split(':');
+    if (uppgift.harStartTid && uppgift.startTid) {
+      const delar = uppgift.startTid.split(':');
       setStartTimme(delar[0] ?? '08');
       setStartMinut(delar[1] ?? '00');
     } else {
@@ -807,17 +937,14 @@ export default function HomeScreen() {
       setStartMinut('00');
     }
 
-    setUpprepningarLista(valdUppgift.upprepningar ?? []);
+    setUpprepningarLista(uppgift.upprepningar ?? []);
 
     setUpprepningTyp('ingen');
     setUpprepningDagar('1');
-
     setUpprepningVeckoFrekvens('Varje');
     setUpprepningVeckodag('Måndag');
-
     setUpprepningManadsFrekvens('Varje');
     setUpprepningManadsDag('1');
-
     setUpprepningManadsDynamisk(false);
     setUpprepningManadsPosition('Första');
     setUpprepningManadsDynamiskVeckodag('Måndag');
@@ -827,6 +954,14 @@ export default function HomeScreen() {
     setVisaDatumValkare(false);
     setVisaUpprepningModal(false);
     setVisaLaggTillModal(true);
+  }
+
+  function oppnaRedigeraModal() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    oppnaRedigeraModalMedUppgift(valdUppgift);
   }
 
   function oppnaUpprepningModal() {
@@ -906,7 +1041,7 @@ export default function HomeScreen() {
     }
   }
 
-  function hanteraLaggTillUppgift() {
+  async function hanteraLaggTillUppgift() {
     const renTitel = nyTitel.trim();
 
     if (!renTitel) {
@@ -928,15 +1063,19 @@ export default function HomeScreen() {
       klartDatum: uppgiftSomRedigeras?.klartDatum,
     };
 
+    const senasteUppgifter = await hamtaSenasteUppgifterFranStorage();
+
+    let nyaUppgifter: Uppgift[];
+
     if (uppgiftSomRedigeras) {
-      setUppgifter((nuvarandeUppgifter) =>
-        nuvarandeUppgifter.map((uppgift) =>
-          uppgift.id === uppgiftSomRedigeras.id ? sparadUppgift : uppgift
-        )
+      nyaUppgifter = senasteUppgifter.map((uppgift) =>
+        uppgift.id === uppgiftSomRedigeras.id ? sparadUppgift : uppgift
       );
     } else {
-      setUppgifter((nuvarandeUppgifter) => [sparadUppgift, ...nuvarandeUppgifter]);
+      nyaUppgifter = [sparadUppgift, ...senasteUppgifter];
     }
+
+    await sparaOchSattUppgifter(nyaUppgifter);
 
     setUppgiftSomRedigeras(null);
     setAktivFlik(arIdag(datumStrang) ? 'Idag' : 'Framtida');
@@ -952,12 +1091,10 @@ export default function HomeScreen() {
     setValdUppgift(null);
   }
 
-  function flyttaUppgiftTillImorgon(uppgift: Uppgift) {
-    if (uppgift.arViktig) {
-      setUppgiftAttFlytta(uppgift);
-      setVisaViktigBekraftelse(true);
-      return;
-    }
+  async function flyttaUppgiftTillImorgon(uppgift: Uppgift) {
+    
+
+    const senasteUppgifter = await hamtaSenasteUppgifterFranStorage();
 
     const nuvarandeDatum = strangTillDatum(uppgift.datum);
     const imorgon = new Date(nuvarandeDatum);
@@ -965,39 +1102,24 @@ export default function HomeScreen() {
 
     const nyttDatum = datumTillStrang(imorgon);
 
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.map((nuvarandeUppgift) =>
-        nuvarandeUppgift.id === uppgift.id
-          ? {
-              ...nuvarandeUppgift,
-              datum: nyttDatum,
-            }
-          : nuvarandeUppgift
-      )
+    const nyaUppgifter = senasteUppgifter.map((nuvarandeUppgift) =>
+      nuvarandeUppgift.id === uppgift.id
+        ? {
+            ...nuvarandeUppgift,
+            datum: nyttDatum,
+          }
+        : nuvarandeUppgift
     );
+
+    await sparaOchSattUppgifter(nyaUppgifter);
   }
 
-  function bekraftaFlyttaTillImorgon() {
+  async function bekraftaFlyttaTillImorgon() {
     if (!uppgiftAttFlytta) {
       return;
     }
 
-    const nuvarandeDatum = strangTillDatum(uppgiftAttFlytta.datum);
-    const imorgon = new Date(nuvarandeDatum);
-    imorgon.setDate(imorgon.getDate() + 1);
-
-    const nyttDatum = datumTillStrang(imorgon);
-
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === uppgiftAttFlytta.id
-          ? {
-              ...uppgift,
-              datum: nyttDatum,
-            }
-          : uppgift
-      )
-    );
+    await flyttaUppgiftTillImorgon(uppgiftAttFlytta);
 
     setUppgiftAttFlytta(null);
     setVisaViktigBekraftelse(false);
@@ -1010,7 +1132,8 @@ export default function HomeScreen() {
     setSwipeResetCounter((nuvarande) => nuvarande + 1);
   }
 
-  function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
+  async function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
+    const senasteUppgifter = await hamtaSenasteUppgifterFranStorage();
     const avslutadIdag = datumTillStrang(new Date());
 
     const uppdateradUppgift: Uppgift = {
@@ -1019,10 +1142,10 @@ export default function HomeScreen() {
       klartDatum: avslutadIdag,
     };
 
-    let nyaUppgifter: Uppgift[] = [];
+    let nyaFramtidaUppgifter: Uppgift[] = [];
 
     if (uppgiftAttSlutfora.upprepningar && uppgiftAttSlutfora.upprepningar.length > 0) {
-      nyaUppgifter = uppgiftAttSlutfora.upprepningar.map((regel, index) => ({
+      nyaFramtidaUppgifter = uppgiftAttSlutfora.upprepningar.map((regel, index) => ({
         ...uppgiftAttSlutfora,
         id: `${Date.now()}-${index}`,
         status: 'aktiv',
@@ -1032,41 +1155,101 @@ export default function HomeScreen() {
       }));
     }
 
-    setUppgifter((nuvarandeUppgifter) => {
-      const uppdaterade = nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === uppgiftAttSlutfora.id ? uppdateradUppgift : uppgift
-      );
-
-      if (nyaUppgifter.length > 0) {
-        return [...nyaUppgifter, ...uppdaterade];
-      }
-
-      return uppdaterade;
-    });
-
-  }
-
-  function hanteraKlarFranDetalj() {
-    if (!valdUppgift) {
-      return;
-    }
-
-    markeraUppgiftSomKlar(valdUppgift);
-    stangUppgift();
-  }
-
-  function hanteraTaBortFranDetalj() {
-    if (!valdUppgift) {
-      return;
-    }
-
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.filter((uppgift) => uppgift.id !== valdUppgift.id)
+    const uppdaterade = senasteUppgifter.map((uppgift) =>
+      uppgift.id === uppgiftAttSlutfora.id ? uppdateradUppgift : uppgift
     );
 
+    const slutligLista =
+      nyaFramtidaUppgifter.length > 0
+        ? [...nyaFramtidaUppgifter, ...uppdaterade]
+        : uppdaterade;
+
+    await sparaOchSattUppgifter(slutligLista);
+  }
+
+  async function hoppaOverUppgift(uppgift: Uppgift) {
+    if (!uppgift.upprepningar || uppgift.upprepningar.length === 0) {
+      await flyttaUppgiftTillImorgon(uppgift);
+      return;
+    }
+
+    const regel = uppgift.upprepningar[0];
+
+    if (!regel) {
+      await flyttaUppgiftTillImorgon(uppgift);
+      return;
+    }
+
+    const senasteUppgifter = await hamtaSenasteUppgifterFranStorage();
+    const nyttDatum = beraknaNastaDatumFranRegel(uppgift.datum, regel);
+
+    const nyaUppgifter = senasteUppgifter.map((nuvarandeUppgift) =>
+      nuvarandeUppgift.id === uppgift.id
+        ? {
+            ...nuvarandeUppgift,
+            datum: nyttDatum,
+          }
+        : nuvarandeUppgift
+    );
+
+    await sparaOchSattUppgifter(nyaUppgifter);
+  }
+
+  async function hanteraKlarFranDetalj() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    await markeraUppgiftSomKlar(valdUppgift);
     stangUppgift();
   }
 
+  async function hanteraFlyttaTillImorgonFranDetalj() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    if (valdUppgift.arViktig) {
+      const uppgift = valdUppgift;
+      stangUppgift();
+
+      setTimeout(() => {
+        setUppgiftAttFlytta(uppgift);
+        setVisaViktigBekraftelse(true);
+      }, 50);
+
+      return;
+    }
+
+    await flyttaUppgiftTillImorgon(valdUppgift);
+    stangUppgift();
+  }
+
+  async function hanteraHoppaOverFranDetalj() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    await hoppaOverUppgift(valdUppgift);
+    stangUppgift();
+  }
+
+  async function hanteraTaBortFranRedigering() {
+    if (!uppgiftSomRedigeras) {
+      return;
+    }
+
+    const senasteUppgifter = await hamtaSenasteUppgifterFranStorage();
+
+    const nyaUppgifter = senasteUppgifter.filter(
+      (uppgift) => uppgift.id !== uppgiftSomRedigeras.id
+    );
+
+    await sparaOchSattUppgifter(nyaUppgifter);
+
+    setUppgiftSomRedigeras(null);
+    stangLaggTillModal();
+  }
 
   const idagUppgifter = uppgifter
     .filter((uppgift) => uppgift.status === 'aktiv' && arIdag(uppgift.datum))
@@ -1147,9 +1330,17 @@ export default function HomeScreen() {
               contentContainerStyle={styles.modalScrollContent}
               keyboardShouldPersistTaps="handled"
               >
-              <Text style={styles.modalTitle}>
-                {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
-              </Text>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>
+                  {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
+                </Text>
+
+                {uppgiftSomRedigeras && (
+                  <Pressable style={styles.iconButton} onPress={hanteraTaBortFranRedigering}>
+                    <Text style={styles.iconButtonText}>🗑</Text>
+                  </Pressable>
+                )}
+              </View>
 
               <TextInput
                 style={styles.input}
@@ -1717,7 +1908,8 @@ export default function HomeScreen() {
           onClose={stangUppgift}
           onComplete={hanteraKlarFranDetalj}
           onEdit={oppnaRedigeraModal}
-          onDelete={hanteraTaBortFranDetalj}
+          onSkip={hanteraHoppaOverFranDetalj}
+          onMoveToTomorrow={hanteraFlyttaTillImorgonFranDetalj}
           formatDetaljDatum={formatDetaljDatum}
           formatUpprepningTextFranRegel={formatUpprepningTextFranRegel}
         />
@@ -1809,6 +2001,15 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
   },
+  taskDateGroup: {
+    marginBottom: 18,
+    gap: 10,
+  },
+  taskDateHeader: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#222',
+  },
   taskTitle: {
     flex: 1,
     fontSize: 15,
@@ -1820,12 +2021,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-  },
-  taskDueText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#444',
-    textAlign: 'right',
   },
   taskRecurrenceText: {
     marginTop: 6,
@@ -1879,6 +2074,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  iconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e9ecef',
+  },
+  iconButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#222',
   },
   fieldLabel: {
     fontSize: 15,

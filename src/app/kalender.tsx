@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +13,7 @@ import {
 import { TaskDetailModal } from '../components/task-detail-modal';
 
 const STORAGE_KEY = 'uppgifter';
+const EDIT_REQUEST_KEY = 'rutinus-edit-request';
 
 type UpprepningsRegel = {
   typ: 'daglig' | 'veckovis' | 'manadsvis';
@@ -32,6 +35,7 @@ type Uppgift = {
   datum: string;
   klartDatum?: string;
   kommentar?: string;
+  arViktig?: boolean;
   harStartTid?: boolean;
   startTid?: string;
   upprepningar?: UpprepningsRegel[];
@@ -356,6 +360,7 @@ function beraknaNastaDatumFranRegel(utgangsDatum: string, regel: UpprepningsRege
 
 export default function KalenderScreen() {
   const idag = new Date();
+  const router = useRouter();
 
   const [uppgifter, setUppgifter] = useState<Uppgift[]>([]);
   const [visatDatum, setVisatDatum] = useState(
@@ -363,6 +368,34 @@ export default function KalenderScreen() {
   );
   const [valtDatumStrang, setValtDatumStrang] = useState(datumTillStrang(idag));
   const [valdUppgift, setValdUppgift] = useState<Uppgift | null>(null);
+  
+  const [visaViktigBekraftelse, setVisaViktigBekraftelse] = useState(false);
+  const [uppgiftAttFlytta, setUppgiftAttFlytta] = useState<Uppgift | null>(null);
+
+  async function sparaOchSattUppgifterKalender(nyaUppgifter: Uppgift[]) {
+    setUppgifter(nyaUppgifter);
+
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nyaUppgifter));
+
+      const kontroll = await AsyncStorage.getItem(STORAGE_KEY);
+      const kontrollLista: Uppgift[] = kontroll ? JSON.parse(kontroll) : [];
+
+      console.log('Kalender sparade antal uppgifter:', kontrollLista.length);
+      console.log(
+        'Kalender sparade statusar:',
+        kontrollLista.map((uppgift) => ({
+          id: uppgift.id,
+          titel: uppgift.titel,
+          status: uppgift.status,
+          datum: uppgift.datum,
+          klartDatum: uppgift.klartDatum,
+        }))
+      );
+    } catch (error) {
+      console.log('Kunde inte spara uppgifter i kalendern:', error);
+    }
+  }
 
   const laddaUppgifter = useCallback(async () => {
     try {
@@ -445,7 +478,25 @@ export default function KalenderScreen() {
     setValdUppgift(null);
   }
 
-  function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
+  async function redigeraFranKalender() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    try {
+      await AsyncStorage.setItem(EDIT_REQUEST_KEY, valdUppgift.id);
+    } catch (error) {
+      console.log('Kunde inte spara redigeringsförfrågan:', error);
+    }
+
+    stangUppgift();
+
+    requestAnimationFrame(() => {
+      router.push('/');
+    });
+  }
+
+  async function markeraUppgiftSomKlar(uppgiftAttSlutfora: Uppgift) {
     const avslutadIdag = datumTillStrang(new Date());
 
     const uppdateradUppgift: Uppgift = {
@@ -454,10 +505,10 @@ export default function KalenderScreen() {
       klartDatum: avslutadIdag,
     };
 
-    let nyaUppgifter: Uppgift[] = [];
+    let nyaFramtidaUppgifter: Uppgift[] = [];
 
     if (uppgiftAttSlutfora.upprepningar && uppgiftAttSlutfora.upprepningar.length > 0) {
-      nyaUppgifter = uppgiftAttSlutfora.upprepningar.map((regel, index) => ({
+      nyaFramtidaUppgifter = uppgiftAttSlutfora.upprepningar.map((regel, index) => ({
         ...uppgiftAttSlutfora,
         id: `${Date.now()}-${index}`,
         status: 'aktiv',
@@ -467,37 +518,116 @@ export default function KalenderScreen() {
       }));
     }
 
-    setUppgifter((nuvarandeUppgifter) => {
-      const uppdaterade = nuvarandeUppgifter.map((uppgift) =>
-        uppgift.id === uppgiftAttSlutfora.id ? uppdateradUppgift : uppgift
-      );
+    const uppdaterade = uppgifter.map((uppgift) =>
+      uppgift.id === uppgiftAttSlutfora.id ? uppdateradUppgift : uppgift
+    );
 
-      if (nyaUppgifter.length > 0) {
-        return [...nyaUppgifter, ...uppdaterade];
-      }
+    const slutligLista =
+      nyaFramtidaUppgifter.length > 0
+        ? [...nyaFramtidaUppgifter, ...uppdaterade]
+        : uppdaterade;
 
-      return uppdaterade;
-    });
+    await sparaOchSattUppgifterKalender(slutligLista);
   }
 
-  function hanteraKlarFranDetalj() {
+  async function hanteraKlarFranDetalj() {
     if (!valdUppgift) {
       return;
     }
 
-    markeraUppgiftSomKlar(valdUppgift);
+    await markeraUppgiftSomKlar(valdUppgift);
     stangUppgift();
   }
 
-  function hanteraTaBortFranDetalj() {
+  async function flyttaUppgiftTillImorgon(uppgift: Uppgift) {
+    const nuvarandeDatum = strangTillDatum(uppgift.datum);
+    const imorgon = new Date(nuvarandeDatum);
+    imorgon.setDate(imorgon.getDate() + 1);
+
+    const nyttDatum = datumTillStrang(imorgon);
+
+    const nyaUppgifter = uppgifter.map((nuvarandeUppgift) =>
+      nuvarandeUppgift.id === uppgift.id
+        ? {
+            ...nuvarandeUppgift,
+            datum: nyttDatum,
+          }
+        : nuvarandeUppgift
+    );
+
+    await sparaOchSattUppgifterKalender(nyaUppgifter);
+  }
+
+  async function bekraftaFlyttaTillImorgon() {
+    if (!uppgiftAttFlytta) {
+      return;
+    }
+
+    await flyttaUppgiftTillImorgon(uppgiftAttFlytta);
+
+    setUppgiftAttFlytta(null);
+    setVisaViktigBekraftelse(false);
+  }
+
+  function avbrytFlyttaTillImorgon() {
+    setUppgiftAttFlytta(null);
+    setVisaViktigBekraftelse(false);
+  }
+
+  async function hanteraFlyttaTillImorgonFranDetalj() {
     if (!valdUppgift) {
       return;
     }
 
-    setUppgifter((nuvarandeUppgifter) =>
-      nuvarandeUppgifter.filter((uppgift) => uppgift.id !== valdUppgift.id)
+    if (valdUppgift.arViktig) {
+      const uppgift = valdUppgift;
+      stangUppgift();
+
+      setTimeout(() => {
+        setUppgiftAttFlytta(uppgift);
+        setVisaViktigBekraftelse(true);
+      }, 50);
+
+      return;
+    }
+
+    await flyttaUppgiftTillImorgon(valdUppgift);
+    stangUppgift();
+  }
+
+  async function hoppaOverUppgift(uppgift: Uppgift) {
+    if (!uppgift.upprepningar || uppgift.upprepningar.length === 0) {
+      await flyttaUppgiftTillImorgon(uppgift);
+      return;
+    }
+
+    const regel = uppgift.upprepningar[0];
+
+    if (!regel) {
+      await flyttaUppgiftTillImorgon(uppgift);
+      return;
+    }
+
+    const nyttDatum = beraknaNastaDatumFranRegel(uppgift.datum, regel);
+
+    const nyaUppgifter = uppgifter.map((nuvarandeUppgift) =>
+      nuvarandeUppgift.id === uppgift.id
+        ? {
+            ...nuvarandeUppgift,
+            datum: nyttDatum,
+          }
+        : nuvarandeUppgift
     );
 
+    await sparaOchSattUppgifterKalender(nyaUppgifter);
+  }
+
+  async function hanteraHoppaOverFranDetalj() {
+    if (!valdUppgift) {
+      return;
+    }
+
+    await hoppaOverUppgift(valdUppgift);
     stangUppgift();
   }
 
@@ -602,16 +732,44 @@ export default function KalenderScreen() {
           ))
         )}
       </View>
+      
       <TaskDetailModal
         uppgift={valdUppgift}
         visible={valdUppgift !== null}
         onClose={stangUppgift}
         onComplete={hanteraKlarFranDetalj}
-        onEdit={stangUppgift}
-        onDelete={hanteraTaBortFranDetalj}
+        onEdit={redigeraFranKalender}
+        onSkip={hanteraHoppaOverFranDetalj}
+        onMoveToTomorrow={hanteraFlyttaTillImorgonFranDetalj}
         formatDetaljDatum={formatDetaljDatum}
         formatUpprepningTextFranRegel={formatUpprepningTextFranRegel}
       />
+
+      <Modal
+        visible={visaViktigBekraftelse}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={avbrytFlyttaTillImorgon}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmationCard}>
+            <Text style={styles.confirmationText}>
+              Uppgiften är markerad som viktig. Är du säker på att du vill flytta fram den?
+            </Text>
+
+            <View style={styles.confirmationButtonRow}>
+              <Pressable style={styles.cancelButton} onPress={avbrytFlyttaTillImorgon}>
+                <Text style={styles.cancelButtonText}>Nej</Text>
+              </Pressable>
+
+              <Pressable style={styles.confirmButton} onPress={bekraftaFlyttaTillImorgon}>
+                <Text style={styles.confirmButtonText}>Ja</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 }
@@ -728,6 +886,13 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
   taskCard: {
     backgroundColor: '#f5f5f5',
     borderRadius: 14,
@@ -761,6 +926,50 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#444',
+  },
+
+  confirmationCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 18,
+    gap: 16,
+  },
+
+  confirmationText: {
+    fontSize: 16,
+    color: '#222',
+    lineHeight: 22,
+  },
+
+  confirmationButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#e9ecef',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+
+  cancelButtonText: {
+    color: '#222',
+    fontWeight: '600',
+  },
+
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#1f6feb',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+
+  confirmButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 
 });
