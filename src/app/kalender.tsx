@@ -445,15 +445,38 @@ export default function KalenderScreen() {
     const lista = uppgifter.filter((uppgift) => uppgift.datum === valtDatumStrang);
 
     return [...lista].sort((a, b) => {
-      if (a.harStartTid && a.startTid && b.harStartTid && b.startTid) {
-        return a.startTid.localeCompare(b.startTid);
+      // 1. Completed tasks go to the bottom
+      if (a.status !== b.status) {
+        if (a.status === 'avslutad') {
+          return 1;
+        }
+        if (b.status === 'avslutad') {
+          return -1;
+        }
       }
-      if (a.harStartTid && a.startTid) {
+
+      // 2. Important tasks come first
+      if ((a.arViktig ?? false) !== (b.arViktig ?? false)) {
+        return a.arViktig ? -1 : 1;
+      }
+
+      // 3. Tasks with time come before tasks without time
+      const aHarTid = a.harStartTid && a.startTid;
+      const bHarTid = b.harStartTid && b.startTid;
+
+      if (aHarTid && bHarTid) {
+        return a.startTid!.localeCompare(b.startTid!);
+      }
+
+      if (aHarTid) {
         return -1;
       }
-      if (b.harStartTid && b.startTid) {
+
+      if (bHarTid) {
         return 1;
       }
+
+      // 4. Fallback: alphabetical
       return a.titel.localeCompare(b.titel);
     });
   }, [uppgifter, valtDatumStrang]);

@@ -63,6 +63,8 @@ type UppgiftsSektionProps = {
   swipeResetCounter?: number;
 };
 
+type Kategori = 'Vardag' | 'Tillfälle' | 'Kreativitet' | 'Hälsa';
+
 const STORAGE_KEY = 'uppgifter';
 const EDIT_REQUEST_KEY = 'rutinus-edit-request';
 
@@ -534,22 +536,7 @@ function beraknaNastaDatumFranRegel(utgangsDatum: string, regel: UpprepningsRege
 }
 
 function taBortGamlaAvslutadeUppgifter(uppgifter: Uppgift[]) {
-  const idag = new Date();
-  idag.setHours(0, 0, 0, 0);
-
-  return uppgifter.filter((uppgift) => {
-    if (uppgift.status !== 'avslutad' || !uppgift.klartDatum) {
-      return true;
-    }
-
-    const klartDatum = strangTillDatum(uppgift.klartDatum);
-    klartDatum.setHours(0, 0, 0, 0);
-
-    const skillnadMs = idag.getTime() - klartDatum.getTime();
-    const skillnadDagar = Math.floor(skillnadMs / (1000 * 60 * 60 * 24));
-
-    return skillnadDagar < 5;
-  });
+  return uppgifter;
 }
 
 function taBortGamlaAktivaUppgifter(uppgifter: Uppgift[]) {
@@ -745,6 +732,13 @@ export default function HomeScreen() {
   const [upprepningManadsDynamiskVeckodag, setUpprepningManadsDynamiskVeckodag] = useState('Måndag');
   const [upprepningManadsDynamiskFrekvens, setUpprepningManadsDynamiskFrekvens] = useState('Varje');
   
+  const [visaKategoriModal, setVisaKategoriModal] = useState(false);
+  const [valdKategori, setValdKategori] = useState<Kategori | null>(null);
+
+  const [visaValTypModal, setVisaValTypModal] = useState(false);
+  const [skapaEgenVald, setSkapaEgenVald] = useState(false);
+  const [visaForslag, setVisaForslag] = useState(false);
+
   const [uppgifter, setUppgifter] = useState<Uppgift[]>([]);
   const [harLaddat, setHarLaddat] = useState(false);
 
@@ -889,7 +883,7 @@ export default function HomeScreen() {
     setStartTimme('08');
     setStartMinut('00');
     setVisaStartTidValkare(false);
-    
+
     setVisaUpprepningModal(false);
     setUpprepningTyp('ingen');
     setUpprepningarLista([]);
@@ -902,8 +896,9 @@ export default function HomeScreen() {
     setUpprepningManadsPosition('Första');
     setUpprepningManadsDynamiskVeckodag('Måndag');
     setUpprepningManadsDynamiskFrekvens('Varje');
-    
-    setVisaLaggTillModal(true);
+
+    setValdKategori(null);
+    setVisaKategoriModal(true);
   }
 
   function stangLaggTillModal() {
@@ -915,6 +910,10 @@ export default function HomeScreen() {
     setUppgiftSomRedigeras(null);
     setVisaStartTidValkare(false);
     setArViktig(false);
+    setValdKategori(null);
+    setVisaValTypModal(false);
+    setSkapaEgenVald(false);
+    setVisaForslag(false);
   }
 
   function oppnaRedigeraModalMedUppgift(uppgift: Uppgift) {
@@ -1273,6 +1272,56 @@ export default function HomeScreen() {
     .sort((a, b) => strangTillDatum(a.datum).getTime() - strangTillDatum(b.datum).getTime()
   );
 
+  function gaVidareFranKategori() {
+    if (!valdKategori) {
+      return;
+    }
+
+    setVisaKategoriModal(false);
+    setSkapaEgenVald(false);
+    setVisaForslag(false);
+    setVisaValTypModal(true);
+  }
+
+  function gaVidareTillEditor() {
+    if (!skapaEgenVald) {
+      return;
+    }
+
+    setVisaValTypModal(false);
+    setVisaLaggTillModal(true);
+  }
+
+  function gaTillbakaTillKategoriModal() {
+    setVisaValTypModal(false);
+    setSkapaEgenVald(false);
+    setVisaForslag(false);
+    setVisaKategoriModal(true);
+  }
+
+  function gaTillbakaTillValTypModal() {
+    setVisaLaggTillModal(false);
+    setVisaDatumValkare(false);
+    setVisaStartTidValkare(false);
+    setVisaUpprepningModal(false);
+    setVisaValTypModal(true);
+  }
+
+  function hamtaKategoriBeskrivning(kategori: Kategori) {
+    switch (kategori) {
+      case 'Vardag':
+        return 'Saker som behöver bli gjorda i vardagen, som städning, disk eller handling.';
+      case 'Tillfälle':
+        return 'Planerade tillfällen som händer vid en viss tid, som möten, intervjuer eller konserter.';
+      case 'Kreativitet':
+        return 'Fokusuppgifter som läsning, plugg, skrivande eller skapande.';
+      case 'Hälsa':
+        return 'Saker som hjälper dig ta hand om dig själv, som promenader, träning eller återhämtning.';
+      default:
+        return '';
+    }
+  }
+
 
   let innehall = null;
 
@@ -1316,6 +1365,176 @@ export default function HomeScreen() {
           {innehall}
         </ScrollView>
 
+        <Modal
+          visible={visaKategoriModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setVisaKategoriModal(false)}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <View style={[styles.modalHeaderRow, styles.categoryHeaderSpacing]}>
+                  <Text style={styles.modalTitle}>Välj kategori</Text>
+                </View>
+
+                <View style={styles.categoryGrid}>
+                  {(['Vardag', 'Tillfälle', 'Kreativitet', 'Hälsa'] as Kategori[]).map((kategori) => {
+                    const arVald = valdKategori === kategori;
+
+                    return (
+                      <Pressable
+                        key={kategori}
+                        style={[
+                          styles.categorySquare,
+                          arVald && styles.categorySquareActive,
+                        ]}
+                        onPress={() => setValdKategori(kategori)}
+                      >
+                        <Text
+                          style={[
+                            styles.categorySquareText,
+                            arVald && styles.categorySquareTextActive,
+                          ]}
+                        >
+                          {kategori}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {valdKategori && (
+                  <Text style={styles.categoryDescriptionText}>
+                    {hamtaKategoriBeskrivning(valdKategori)}
+                  </Text>
+                )}
+
+                <View style={[styles.modalButtonRow, styles.categoryModalButtonSpacing]}>
+                  <Pressable
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setVisaKategoriModal(false);
+                      setValdKategori(null);
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Avbryt</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.confirmButton,
+                      !valdKategori && styles.confirmButtonDisabled,
+                    ]}
+                    onPress={gaVidareFranKategori}
+                    disabled={!valdKategori}
+                  >
+                    <Text
+                      style={[
+                        styles.confirmButtonText,
+                        !valdKategori && styles.confirmButtonTextDisabled,
+                      ]}
+                    >
+                      Nästa
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        <Modal
+          visible={visaValTypModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setVisaValTypModal(false)}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <View style={styles.modalHeaderRow}>
+                  <Text style={styles.modalTitle}>Välj uppgift</Text>
+
+                  <Pressable style={styles.iconButton} onPress={gaTillbakaTillKategoriModal}>
+                    <Text style={styles.iconButtonText}>←</Text>
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  style={[
+                    styles.createOwnButton,
+                    skapaEgenVald && styles.createOwnButtonActive,
+                  ]}
+                  onPress={() => setSkapaEgenVald(true)}
+                >
+                  <Text
+                    style={[
+                      styles.createOwnButtonText,
+                      skapaEgenVald && styles.createOwnButtonTextActive,
+                    ]}
+                  >
+                    Skapa egen
+                  </Text>
+                </Pressable>
+
+                <View style={styles.suggestionHeaderRow}>
+                  <Text style={styles.suggestionHeaderText}>eller välj bland föreslagna</Text>
+
+                  <Pressable
+                    style={styles.dropdownToggleButton}
+                    onPress={() => setVisaForslag((nuvarande) => !nuvarande)}
+                  >
+                    <Text style={styles.dropdownToggleButtonText}>
+                      {visaForslag ? '^' : 'v'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {visaForslag && (
+                  <View style={styles.suggestionPlaceholderBox}>
+                    <Text style={styles.suggestionPlaceholderText}>
+                      Förslag kommer här senare.
+                    </Text>
+                  </View>
+                )}
+
+                <View style={[styles.modalButtonRow, styles.stepBeforeEditorButtonSpacing]}>
+                  <Pressable
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setVisaValTypModal(false);
+                      setSkapaEgenVald(false);
+                      setVisaForslag(false);
+                      setValdKategori(null);
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Avbryt</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.confirmButton,
+                      !skapaEgenVald && styles.confirmButtonDisabled,
+                    ]}
+                    onPress={gaVidareTillEditor}
+                    disabled={!skapaEgenVald}
+                  >
+                    <Text
+                      style={[
+                        styles.confirmButtonText,
+                        !skapaEgenVald && styles.confirmButtonTextDisabled,
+                      ]}
+                    >
+                      Nästa
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+        
         
         <Modal
           visible={visaLaggTillModal}
@@ -1332,15 +1551,27 @@ export default function HomeScreen() {
               >
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>
-                  {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Lägg till ny'}
+                  {uppgiftSomRedigeras ? 'Redigera uppgift' : 'Skapa uppgift'}
                 </Text>
 
-                {uppgiftSomRedigeras && (
-                  <Pressable style={styles.iconButton} onPress={hanteraTaBortFranRedigering}>
-                    <Text style={styles.iconButtonText}>🗑</Text>
-                  </Pressable>
-                )}
+                <View style={styles.headerActionRow}>
+                  {uppgiftSomRedigeras && (
+                    <Pressable style={styles.iconButton} onPress={hanteraTaBortFranRedigering}>
+                      <Text style={styles.iconButtonText}>🗑</Text>
+                    </Pressable>
+                  )}
+
+                  {!uppgiftSomRedigeras && (
+                    <Pressable style={styles.iconButton} onPress={gaTillbakaTillValTypModal}>
+                      <Text style={styles.iconButtonText}>←</Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
+
+              {valdKategori && (
+                <Text style={styles.selectedCategoryText}>{valdKategori}</Text>
+              )}
 
               <TextInput
                 style={styles.input}
@@ -2073,7 +2304,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 1,
+  },
+  headerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   iconButton: {
     width: 32,
@@ -2490,6 +2726,114 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  
+  /* Category styles */
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 30,
+    marginTop: 20,
+  },
+  categorySquare: {
+    width: '48%',
+    aspectRatio: 1,
+    backgroundColor: '#f1f3f5',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 45,
+  },
+  categorySquareActive: {
+    backgroundColor: '#dbeafe',
+    borderWidth: 1.5,
+    borderColor: '#1f6feb',
+  },
+  categorySquareText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+    textAlign: 'center',
+  },
+  categorySquareTextActive: {
+    color: '#1f6feb',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#cfd4da',
+  },
+  confirmButtonTextDisabled: {
+    color: '#f8f9fa',
+  },
+  selectedCategoryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+  },
+  categoryDescriptionText: {
+    marginTop: 10,
+    marginBottom: 5,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#555',
+    textAlign: 'center',
+  },
+
+  /* Task Chooser */
+  createOwnButton: {
+    backgroundColor: '#f1f3f5',
+    borderRadius: 16,
+    paddingVertical: 22,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  createOwnButtonActive: {
+    backgroundColor: '#dbeafe',
+    borderWidth: 1.5,
+    borderColor: '#1f6feb',
+  },
+  createOwnButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#222',
+  },
+  createOwnButtonTextActive: {
+    color: '#1f6feb',
+  },
+  suggestionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  suggestionHeaderText: {
+    fontSize: 15,
+    color: '#555',
+  },
+  dropdownToggleButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e9ecef',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dropdownToggleButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#222',
+  },
+  suggestionPlaceholderBox: {
+    marginTop: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 14,
+    padding: 16,
+  },
+  suggestionPlaceholderText: {
+    fontSize: 14,
+    color: '#666',
+  },
 
   /* Space between details */
   commentSectionSpacing: {
@@ -2512,5 +2856,14 @@ const styles = StyleSheet.create({
   },
   importantSectionSpacing: {
     marginTop: 8,
+  },
+  categoryModalButtonSpacing: {
+    marginTop: 8,
+  },
+  categoryHeaderSpacing: {
+    marginBottom: 12,
+  },
+  stepBeforeEditorButtonSpacing: {
+    marginTop: 24,
   },
 });
