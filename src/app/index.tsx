@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -17,8 +18,8 @@ import {
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { TaskDetailModal } from '../components/task-detail-modal';
-
 
 type UpprepningsRegel = {
   typ: 'daglig' | 'veckovis' | 'manadsvis';
@@ -61,6 +62,11 @@ type UppgiftsSektionProps = {
   kanSwipeFlytta?: boolean;
   onSwipeFlytta?: (uppgift: Uppgift) => void;
   swipeResetCounter?: number;
+};
+
+type UppgiftsSektionData = {
+  title: string;
+  data: Uppgift[];
 };
 
 type Kategori = 'Vardag' | 'Tillfälle' | 'Kreativitet' | 'Hälsa';
@@ -257,6 +263,15 @@ function formatSektionsDatum(datumStrang: string) {
   ];
 
   return `${veckodagar[datum.getDay()]} ${datum.getDate()} ${manader[datum.getMonth()]}`;
+}
+
+function skapaSektionerFranUppgifter(uppgifter: Uppgift[]): UppgiftsSektionData[] {
+  const grupperade = grupperaUppgifterEfterDatum(uppgifter);
+
+  return grupperade.map((grupp) => ({
+    title: formatSektionsDatum(grupp.datum),
+    data: grupp.uppgifter,
+  }));
 }
 
 function grupperaUppgifterEfterDatum(uppgifter: Uppgift[]) {
@@ -620,61 +635,65 @@ function UppgiftsSektion({
   onSwipeFlytta,
   swipeResetCounter = 0,
 }: UppgiftsSektionProps) {
-  const grupperadeUppgifter = grupperaUppgifterEfterDatum(uppgifter);
+  const sektioner = skapaSektionerFranUppgifter(uppgifter);
+
+  if (uppgifter.length === 0) {
+    return (
+      <View style={styles.taskList}>
+        <Text style={styles.emptyText}>Inga uppgifter</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.taskList}>
-      {uppgifter.length === 0 ? (
-        <Text style={styles.emptyText}>Inga uppgifter</Text>
-      ) : (
-        grupperadeUppgifter.map((grupp) => (
-          <View key={grupp.datum} style={styles.taskDateGroup}>
-            <Text style={styles.taskDateHeader}>
-              {formatSektionsDatum(grupp.datum)}
-            </Text>
-
-            {grupp.uppgifter.map((uppgift) => {
-              const taskKort = (
-                <Pressable
-                  onPress={() => onTryckUppgift?.(uppgift.id)}
-                  style={hamtaTaskCardStyle(uppgift)}
-                >
-                  <View style={styles.taskHeaderRow}>
-                    <Text style={styles.taskTitle}>
-                      {uppgift.status === 'avslutad' ? '✔ ' : ''}
-                      {uppgift.titel}
-                      {uppgift.kommentar ? ' [K]' : ''}
-                    </Text>
-
-                    <View style={styles.taskRightColumn}>
-                      {uppgift.harStartTid && uppgift.startTid && (
-                        <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
-                      )}
-                    </View>
-                  </View>
-                </Pressable>
-              );
-
-              return kanSwipeFlytta && uppgift.status === 'aktiv' ? (
-                <Swipeable
-                  key={`${uppgift.id}-${swipeResetCounter}`}
-                  renderLeftActions={SwipeFlyttaBakgrund}
-                  leftThreshold={120}
-                  overshootLeft={false}
-                  onSwipeableOpen={() => {
-                    onSwipeFlytta?.(uppgift);
-                  }}
-                >
-                  {taskKort}
-                </Swipeable>
-              ) : (
-                <View key={uppgift.id}>{taskKort}</View>
-              );
-            })}
-          </View>
-        ))
+    <SectionList
+      sections={sektioner}
+      keyExtractor={(item) => `${item.id}-${swipeResetCounter}`}
+      stickySectionHeadersEnabled
+      contentContainerStyle={styles.taskList}
+      renderSectionHeader={({ section }) => (
+        <View style={styles.taskDateHeaderContainer}>
+          <Text style={styles.taskDateHeader}>{section.title}</Text>
+        </View>
       )}
-    </View>
+      renderItem={({ item: uppgift }) => {
+        const taskKort = (
+          <Pressable
+            onPress={() => onTryckUppgift?.(uppgift.id)}
+            style={hamtaTaskCardStyle(uppgift)}
+          >
+            <View style={styles.taskHeaderRow}>
+              <Text style={styles.taskTitle}>
+                {uppgift.status === 'avslutad' ? '✔ ' : ''}
+                {uppgift.titel}
+                {uppgift.kommentar ? ' [K]' : ''}
+              </Text>
+
+              <View style={styles.taskRightColumn}>
+                {uppgift.harStartTid && uppgift.startTid && (
+                  <Text style={styles.taskTimeText}>{uppgift.startTid}</Text>
+                )}
+              </View>
+            </View>
+          </Pressable>
+        );
+
+        return kanSwipeFlytta && uppgift.status === 'aktiv' ? (
+          <Swipeable
+            renderLeftActions={SwipeFlyttaBakgrund}
+            leftThreshold={120}
+            overshootLeft={false}
+            onSwipeableOpen={() => {
+              onSwipeFlytta?.(uppgift);
+            }}
+          >
+            {taskKort}
+          </Swipeable>
+        ) : (
+          <View>{taskKort}</View>
+        );
+      }}
+    />
   );
 }
 
@@ -1346,24 +1365,30 @@ export default function HomeScreen() {
 
   return (
    <GestureHandlerRootView style={{ flex: 1 }}>
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.container}>
-        <Pressable style={styles.addButton} onPress={oppnaLaggTillModal}>
-          <Text style={styles.addButtonText}>Lägg till ny</Text>
-        </Pressable>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+
+        <View style={styles.topHeaderRow}>
+          <View style={styles.topHeaderSpacer} />
+
+          <Pressable style={styles.settingsButton}>
+            <Text style={styles.settingsButtonText}>⚙</Text>
+          </Pressable>
+        </View>    
 
         <View style={styles.tabRow}>
           <FlikKnapp titel="Idag" aktivFlik={aktivFlik} onPress={setAktivFlik} />
           <FlikKnapp titel="Framtida" aktivFlik={aktivFlik} onPress={setAktivFlik} />
         </View>
 
-        <ScrollView
-          style={styles.contentScroll}
-          contentContainerStyle={styles.contentScrollInner}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.contentScroll}>
           {innehall}
-        </ScrollView>
+        </View>
+
+        <Pressable style={styles.fabButton} onPress={oppnaLaggTillModal}>
+          <Text style={styles.fabButtonText}>+</Text>
+        </Pressable>
 
         <Modal
           visible={visaKategoriModal}
@@ -2170,8 +2195,9 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
-      </View>
-    </TouchableWithoutFeedback>
+            </View>
+      </TouchableWithoutFeedback>
+    </SafeAreaView>
    </GestureHandlerRootView>
   );
 }
@@ -2180,15 +2206,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+    paddingTop: 10,
     backgroundColor: '#fff',
     gap: 20,
-    marginTop: 30,
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
   contentScroll: {
     flex: 1,
   },
   contentScrollInner: {
-    paddingBottom: 20,
+    paddingBottom: 160,
+  },
+  topHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  topHeaderSpacer: {
+    flex: 1,
+  },
+  settingsButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#f1f3f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsButtonText: {
+    fontSize: 22,
+    color: '#222',
   },
   addButton: {
     backgroundColor: '#1f6feb',
@@ -2201,6 +2251,28 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  fabButton: {
+    position: 'absolute',
+    bottom: 90,
+    alignSelf: 'center',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#1f6feb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  fabButtonText: {
+    color: '#fff',
+    fontSize: 60,
+    fontWeight: '800',
+    lineHeight: 60,
   },
   tabRow: {
     flexDirection: 'row',
@@ -2224,7 +2296,8 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   taskList: {
-    gap: 12,
+    paddingBottom: 160,
+    gap: 20,
   },
   taskCard: {
     backgroundColor: '#f5f5f5',
@@ -2232,9 +2305,10 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
   },
-  taskDateGroup: {
-    marginBottom: 18,
-    gap: 10,
+  taskDateHeaderContainer: {
+    backgroundColor: '#fff',
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   taskDateHeader: {
     fontSize: 18,
